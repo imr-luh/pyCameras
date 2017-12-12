@@ -307,6 +307,8 @@ class CameraBasler(CameraTemplate):
         self.grabberThread = threading.Thread(target=self._grabTriggeredImages)
         self.grabberThread.start()
         return
+    # Temporary fix until function calls are unified to camera template
+    setupFrameList = grabStart
 
     def grabStop(self):
         """
@@ -366,6 +368,8 @@ class CameraBasler(CameraTemplate):
         self.grabbedImages = self.grabbedImages[num:] if num is not None else []
 
         return imgs
+    # Temporary fix until function calls are unified to camera template
+    getImagesFromFrameList = getImages
 
     def setTriggerMode(self, mode=None):
         """
