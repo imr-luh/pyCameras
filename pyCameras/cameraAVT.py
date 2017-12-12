@@ -122,33 +122,13 @@ class CameraAVT(CameraTemplate):
 
         # Open device and activate freerun mode
         self.openDevice()
+        # time.sleep(0.2)
         self.device.TriggerMode = 'Off'
         self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
+        # Influences framerate, necessary if network bandwidth is not big enough
+        self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec
 
         # TODO: Adjust Datatype depending on PixelFormat?
-
-    def _prepareFrames(self, noFrames):
-        """
-        Internal function to create a framelist. Announces and queues frames.
-
-        Parameters
-        ----------
-        noFrames : Integer
-            Defines the number of frames prepared for image acquisition
-
-        Returns
-        -------
-        framelist : list
-            List of frames
-        """
-        framelist = []
-        for _ in range(noFrames):
-            frame = self.device.getFrame()
-            frame.announceFrame()
-            frame.queueFrameCapture()
-            framelist.append(frame)
-
-        return framelist
 
     def _cleanUp(self):
         """
@@ -160,6 +140,24 @@ class CameraAVT(CameraTemplate):
         self.device.endCapture()
         self.device.flushCaptureQueue()
         self.device.revokeAllFrames()
+
+    def _frameCallback(self, frame):
+        """
+        Callback function to fill frames with data
+
+        Parameters
+        -------
+        frame : frame object
+            frame created by device.getFrame()
+        """
+        frame.waitFrameCapture(1000)
+        data = frame.getBufferByteData()
+        singleImg = np.ndarray(buffer=data,
+                               dtype=np.uint8,
+                               shape=(frame.height, frame.width))
+
+        self.imgList.append(singleImg)
+        frame.queueFrameCapture(self._frameCallback)
 
     @staticmethod
     def listDevices():
@@ -250,49 +248,44 @@ class CameraAVT(CameraTemplate):
         grabbed_images : list of images
             List of grabbed images that were recorded
         """
+        self.imgList = []
+
         self.device.AcquisitionMode = 'MultiFrame'
         self.device.AcquisitionFrameCount = numberFrames
-        imgList = []
 
-        # Frame callback function. Reads frame data for each frame used
-        def frameCallback(frame):
-            frame.waitFrameCapture(1000)
-            data = frame.getBufferByteData()
-            singleImg = np.ndarray(buffer=data,
-                             dtype=np.uint8,
-                             shape=(frame.height, frame.width))
-
-            imgList.append(singleImg)
-            frame.queueFrameCapture(frameCallback)
+        # To test function
+        # self.device.AcquisitionFrameRateAbs = 2
+        # self.device.TriggerSource = 'FixedRate'
 
         # Creating frames
         framelist = []
         for _ in range(numberFrames):
             frame = self.device.getFrame()
             frame.announceFrame()
-            frame.queueFrameCapture(frameCallback)
+            frame.queueFrameCapture(self._frameCallback)
             framelist.append(frame)
 
-        print (len(framelist))
+        print ('Length of Framelist is:', len(framelist))
         self.device.startCapture()
 
         # cv.namedWindow('image', cv.WINDOW_NORMAL)
         # cv.resizeWindow('image', 1000, 1000)
 
-        # starttime = time.time()
+        starttime = time.time()
         self.device.runFeatureCommand('AcquisitionStart')
-        while len(imgList) < numberFrames:
+        while len(self.imgList) < numberFrames:
             pass
         self.device.runFeatureCommand('AcquisitionStop')
-        # print (len(imgList))
-        # print ('Time passed: ', time.time()-starttime)
+        print ('Length of image list is:', len(self.imgList))
+        print ('Time passed: ', time.time()-starttime)
 
-        self.device.AcquisitionMode = 'Continuous'
         # Do cleanup
         self._cleanUp()
 
         # Did not find a better way to return data
-        imgData = copy.deepcopy(imgList)
+        imgData = copy.deepcopy(self.imgList)
+        self.imgList = []
+        self.device.AcquisitionMode = 'Continuous'
 
         return imgData
 
@@ -310,14 +303,39 @@ class CameraAVT(CameraTemplate):
 
         # Prepare trigger settings
         self.setTriggerMode('in')
-        # Get image data from function getImages
-        return self.getImages(numberFrames)
+
+        self.device.AcquisitionMode = 'MultiFrame'
+        self.device.AcquisitionFrameCount = numberFrames
+        self.imgList = []
+
+        # Creating frames
+        framelist = []
+        for _ in range(numberFrames):
+            frame = self.device.getFrame()
+            frame.announceFrame()
+            frame.queueFrameCapture(self._frameCallback)
+            framelist.append(frame)
+
+        self.device.startCapture()
+
+        self.device.runFeatureCommand('AcquisitionStart')
 
     def grabStop(self):
         """
         Stop grabbing images and return camera from trigger mode to normal mode
         """
+        self.device.runFeatureCommand('AcquisitionStop')
+        # Do cleanup
+        self._cleanUp()
+        # Set back to freerun mode
+        self.device.AcquisitionMode = 'Continuous'
+
+        # Did not find a better way to return data
+        imgData = copy.deepcopy(self.imgList)
+
         self.setTriggerMode('off')
+
+        return imgData
 
     def _liveView(self):
         """
@@ -519,11 +537,9 @@ class CameraAVT(CameraTemplate):
                 self.device.TriggerSelector = 'FrameStart'
                 self.device.TriggerActivation = "RisingEdge"
             elif mode.lower() == 'out':
-                # Not supported by AVT cameras (?) TODO Check if possible with AVT
-                raise NotImplementedError('Sending triggers is not supported '
-                                          'by AVT cameras. Please use a '
-                                          'different device to trigger the '
-                                          'camera')
+                # TODO: Implement out trigger for AVT cameras
+                raise NotImplementedError('Sending triggers is not'
+                                          'implemented yet!')
             elif mode.lower() == 'off':
                 self.device.TriggerMode = 'Off'
                 self.device.TriggerSource = 'Freerun'
@@ -577,11 +593,10 @@ if __name__ == '__main__':
     if bLiveView:
         cam_device._liveView()
 
-    images = cam_device.getImages(20)
+    images = cam_device.getImages(10)
     print (len(images))
-    for i in range(20):
-        img = images[i]
-        print ('Showing image {i}'.format(i=i))
+    for _, img in enumerate(images):
+        print ('Showing image {i}'.format(i=_))
         cv.imshow('Captured image', img)
         cv.waitKey()
 
