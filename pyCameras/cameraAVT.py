@@ -3,7 +3,7 @@
 
 __author__ = "Tim Betker"
 __copyright__ = "Copyright 2017, LUH: IMR"
-#__credits__ = ["",""]
+__credits__ = ["Rüder Beermann"]
 # __license__ = ""
 __version__ = "0.2"
 __maintainer__ = "Tim Betker"
@@ -13,7 +13,7 @@ __package_name__ = "AVTcamera"
 __developer__ = __author__
 
 '''
-Based on AVT implementation of Rüdiger Beermann
+Based on AVT implementation of Rüdiger Beermann and pymba: https://github.com/morefigs/pymba.git
 '''
 
 import time
