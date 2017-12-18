@@ -168,6 +168,7 @@ class CameraUSB(CameraTemplate):
         self.logger.debug('usb Camera {device_handle} is ready'
                           ''.format(device_handle=self.device_handle))
         self.registerFeature(key='resolution', callback=self.setResolution)
+        self.openDevice()
 
     @staticmethod
     def listDevices():
