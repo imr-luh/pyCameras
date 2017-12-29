@@ -289,7 +289,7 @@ class CameraAVT(CameraTemplate):
 
         return imgData
 
-    def grabStart(self, numberFrames):
+    def grabStart(self, numberFrames, triggerMode = 'in'):
         """
         Prepare the camera to record a number of triggered frames
 
@@ -299,10 +299,13 @@ class CameraAVT(CameraTemplate):
         ----------
         numberFrames : int
             Number of images that should be recorded through triggering
+
+        triggerMode : string
+            String to determine if camera gets triggered or triggers while grabbing
         """
 
         # Prepare trigger settings
-        self.setTriggerMode('in')
+        self.setTriggerMode(triggerMode)
 
         self.device.AcquisitionMode = 'MultiFrame'
         self.device.AcquisitionFrameCount = numberFrames
