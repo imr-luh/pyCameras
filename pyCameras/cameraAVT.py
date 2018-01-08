@@ -127,6 +127,7 @@ class CameraAVT(CameraTemplate):
         self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
         # Influences framerate, necessary if network bandwidth is not big enough
         self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec
+        self.imgData = []
 
         # TODO: Adjust Datatype depending on PixelFormat?
 
@@ -234,60 +235,20 @@ class CameraAVT(CameraTemplate):
 
         return imgData.copy()
 
-    def getImages(self, numberFrames):
+    def getImages(self):
         """
-        Return list of images. With current camera settings
+        Returns list of images from self variable imgData. Grab has to be run first.
 
         Parameters
         ----------
-        num : int
-            Number of image to return. Images are returned in recorded order.
 
         Returns
         -------
         grabbed_images : list of images
             List of grabbed images that were recorded
         """
-        self.imgList = []
 
-        self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = numberFrames
-
-        # To test function
-        # self.device.AcquisitionFrameRateAbs = 2
-        # self.device.TriggerSource = 'FixedRate'
-
-        # Creating frames
-        framelist = []
-        for _ in range(numberFrames):
-            frame = self.device.getFrame()
-            frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
-            framelist.append(frame)
-
-        print ('Length of Framelist is:', len(framelist))
-        self.device.startCapture()
-
-        # cv.namedWindow('image', cv.WINDOW_NORMAL)
-        # cv.resizeWindow('image', 1000, 1000)
-
-        starttime = time.time()
-        self.device.runFeatureCommand('AcquisitionStart')
-        while len(self.imgList) < numberFrames:
-            pass
-        self.device.runFeatureCommand('AcquisitionStop')
-        print ('Length of image list is:', len(self.imgList))
-        print ('Time passed: ', time.time()-starttime)
-
-        # Do cleanup
-        self._cleanUp()
-
-        # Did not find a better way to return data
-        imgData = copy.deepcopy(self.imgList)
-        self.imgList = []
-        self.device.AcquisitionMode = 'Continuous'
-
-        return imgData
+        return self.imgData
 
     def grabStart(self, numberFrames, triggerMode = 'in'):
         """
@@ -334,11 +295,9 @@ class CameraAVT(CameraTemplate):
         self.device.AcquisitionMode = 'Continuous'
 
         # Did not find a better way to return data
-        imgData = copy.deepcopy(self.imgList)
+        self.imgData = copy.deepcopy(self.imgList)
 
         self.setTriggerMode('off')
-
-        return imgData
 
     def _liveView(self):
         """
