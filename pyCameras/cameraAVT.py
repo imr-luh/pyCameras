@@ -247,6 +247,8 @@ class CameraAVT(CameraTemplate):
         grabbed_images : list of images
             List of grabbed images that were recorded
         """
+        if not self.imgData:
+            print('No image data stored. Use grabStart, grabStop to acquire images!')
 
         return self.imgData
 
@@ -284,9 +286,12 @@ class CameraAVT(CameraTemplate):
 
         self.device.runFeatureCommand('AcquisitionStart')
 
+        return 1
+
     def grabStop(self):
         """
-        Stop grabbing images and return camera from trigger mode to normal mode
+        Stop grabbing images and return camera from trigger mode to normal mode.
+        Stores all grabbed images in self.imgData. Will override variable.
         """
         self.device.runFeatureCommand('AcquisitionStop')
         # Do cleanup
@@ -298,6 +303,8 @@ class CameraAVT(CameraTemplate):
         self.imgData = copy.deepcopy(self.imgList)
 
         self.setTriggerMode('off')
+
+        return 1
 
     def _liveView(self):
         """
