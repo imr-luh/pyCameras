@@ -119,6 +119,7 @@ class CameraAVT(CameraTemplate):
         super(CameraAVT, self).__init__(device_handle)
         self.device = self._vimba.getCamera(device_handle)
         self.modelName = self.device._info.modelName
+        self.camId = self.getCamId()
 
         # Open device and activate freerun mode
         self.openDevice()
@@ -159,6 +160,24 @@ class CameraAVT(CameraTemplate):
 
         self.imgList.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
+
+    def getCamId(self):
+        """
+        Creates a cam-specific cam id, which consists of the manufacturer and a 4 digit number.
+        This id makes it possible to identify the virtual object with real object.
+
+        Returns
+        -------
+        camId : "unique" cam id
+        """
+        if self.camId is None:
+            mfr = 'AVT'     # mfr = manufacturer
+            id = self.device._info.cameraIdString[-4:]
+            camId = '_'.join((mfr, id))
+
+            return camId
+        else:
+            return self.camId
 
     @staticmethod
     def listDevices():
@@ -536,7 +555,7 @@ if __name__ == '__main__':
 
     contr = CameraControllerAVT()
     handle = contr.listDevices()
-    print (handle)
+    print(handle)
 
     # Dictionary to test different connection types/inputs
     source = {'IP':'130.75.27.144', 'Handle_list': handle, 'Handle': handle[0],
@@ -552,7 +571,7 @@ if __name__ == '__main__':
     if bListFeatures:
         cam_device.listFeatures()
 
-    # Get a image
+    # Get an image
     image = cam_device.getImage()
     cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
     cv.resizeWindow('Captured image', 1000, 1000)
