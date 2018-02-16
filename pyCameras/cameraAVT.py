@@ -20,8 +20,10 @@ import time
 import re
 import copy
 import numpy as np
+import cv2 as cv
 from pymba import Vimba
-from cameraTemplate import CameraControllerTemplate, CameraTemplate
+from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+
 
 class CameraControllerAVT(CameraControllerTemplate):
     """
@@ -106,7 +108,7 @@ class CameraAVT(CameraTemplate):
     Creating this Object automatically opens the camera. It is NOT necessary to call openDevice() !!!
     This is done to set some settings to put the camera into freerun mode.
     """
-    def __init__(self, device_handle, vimba):
+    def __init__(self, device_handle, vimba=None):
         """
         Implementation of the AVT camera device
 
@@ -115,10 +117,18 @@ class CameraAVT(CameraTemplate):
         device_handle : object
             Unique camera device handle to identify the camera
         """
-        self._vimba = vimba
+        if vimba is None:
+            self._vimba = Vimba()
+            self._vimba.startup()
+            self.__system = self._vimba.getSystem()
+            self.__system.runFeatureCommand('GeVDiscoveryAllOnce')
+            time.sleep(0.2)
+        else:
+            self._vimba = vimba
         super(CameraAVT, self).__init__(device_handle)
         self.device = self._vimba.getCamera(device_handle)
         self.modelName = self.device._info.modelName
+        self.camId = None
         self.camId = self.getCamId()
 
         # Open device and activate freerun mode
@@ -158,7 +168,7 @@ class CameraAVT(CameraTemplate):
                                dtype=np.uint8,
                                shape=(frame.height, frame.width))
 
-        self.imgList.append(singleImg)
+        self.imgData.append(copy.deepcopy(singleImg))
         frame.queueFrameCapture(self._frameCallback)
 
     def getCamId(self):
@@ -171,9 +181,9 @@ class CameraAVT(CameraTemplate):
         camId : "unique" cam id
         """
         if self.camId is None:
-            mfr = 'AVT'     # mfr = manufacturer
+            mfr = b'AVT'     # mfr = manufacturer
             id = self.device._info.cameraIdString[-4:]
-            camId = '_'.join((mfr, id))
+            camId = b'_'.join((mfr, id)).decode('utf-8')
 
             return camId
         else:
@@ -291,7 +301,7 @@ class CameraAVT(CameraTemplate):
 
         self.device.AcquisitionMode = 'MultiFrame'
         self.device.AcquisitionFrameCount = numberFrames
-        self.imgList = []
+        self.imgData = []
 
         # Creating frames
         framelist = []
@@ -317,9 +327,6 @@ class CameraAVT(CameraTemplate):
         self._cleanUp()
         # Set back to freerun mode
         self.device.AcquisitionMode = 'Continuous'
-
-        # Did not find a better way to return data
-        self.imgData = copy.deepcopy(self.imgList)
 
         self.setTriggerMode('off')
 
