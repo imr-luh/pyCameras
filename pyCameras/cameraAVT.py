@@ -320,11 +320,7 @@ class CameraAVT(CameraTemplate):
         """
         Stop grabbing images and return camera to continuous mode.
         """
-        self.device.runFeatureCommand('AcquisitionStop')
-        # Do cleanup
-        self._cleanUp()
-        # Set back to freerun mode
-        self.device.AcquisitionMode = 'Continuous'
+        pass
 
     def _liveView(self):
         """
