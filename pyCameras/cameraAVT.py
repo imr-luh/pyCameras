@@ -20,6 +20,7 @@ import time
 import re
 import copy
 import numpy as np
+import pymba
 import cv2 as cv
 from pymba import Vimba
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
@@ -130,6 +131,7 @@ class CameraAVT(CameraTemplate):
         self.modelName = self.device._info.modelName
         self.camId = None
         self.camId = self.getCamId()
+        self.triggerModeSetting = 'off'
 
         # Open device and activate freerun mode
         self.openDevice()
@@ -138,6 +140,7 @@ class CameraAVT(CameraTemplate):
         self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
         # Influences framerate, necessary if network bandwidth is not big enough
         self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec
+        self.framelist = []
         self.imgData = []
 
         # TODO: Adjust Datatype depending on PixelFormat?
@@ -163,12 +166,9 @@ class CameraAVT(CameraTemplate):
             frame created by device.getFrame()
         """
         frame.waitFrameCapture(1000)
-        data = frame.getBufferByteData()
-        singleImg = np.ndarray(buffer=data,
-                               dtype=np.uint8,
-                               shape=(frame.height, frame.width))
+        singleImg = frame.getImage()
 
-        self.imgData.append(copy.deepcopy(singleImg))
+        self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
 
     def getCamId(self):
@@ -266,71 +266,65 @@ class CameraAVT(CameraTemplate):
 
     def getImages(self):
         """
-        Returns list of images from self variable imgData. Grab has to be run first.
+        Acquires num images with previously set settings. This function will set camera to MultiFrame mode and
+        afterwards switch back to freerun. Trigger mode has to be set beforehand.
+        This function is blocking!
 
         Parameters
         ----------
+        num : int
+            number of images to be captured during acquisition
 
         Returns
         -------
-        grabbed_images : list of images
-            List of grabbed images that were recorded
+        imgs : list
+            List of recorded images that were recorded
         """
-        if not self.imgData:
-            print('No image data stored. Use grabStart, grabStop to acquire images!')
-
-        return self.imgData
-
-    def grabStart(self, numberFrames, triggerMode = 'in'):
-        """
-        Prepare the camera to record a number of triggered frames
-
-        This turns on the TriggerMode of the camera
-
-        Parameters
-        ----------
-        numberFrames : int
-            Number of images that should be recorded through triggering
-
-        triggerMode : string
-            String to determine if camera gets triggered or triggers while grabbing
-        """
-
-        # Prepare trigger settings
-        self.setTriggerMode(triggerMode)
-
-        self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = numberFrames
         self.imgData = []
-
-        # Creating frames
-        framelist = []
-        for _ in range(numberFrames):
-            frame = self.device.getFrame()
-            frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
-            framelist.append(frame)
-
-        self.device.startCapture()
-
         self.device.runFeatureCommand('AcquisitionStart')
-
-        return 1
-
-    def grabStop(self):
-        """
-        Stop grabbing images and return camera from trigger mode to normal mode.
-        Stores all grabbed images in self.imgData. Will override variable.
-        """
+        # Block until num images are captured
+        while len(self.imgData) != len(self.framelist):
+            pass
         self.device.runFeatureCommand('AcquisitionStop')
         # Do cleanup
         self._cleanUp()
         # Set back to freerun mode
         self.device.AcquisitionMode = 'Continuous'
 
-        self.setTriggerMode('off')
+        return copy.deepcopy(self.imgData)
 
-        return 1
+    def grabStart(self, numberFrames):
+        """
+        Prepare the camera to record a given number of frames.
+        Announces frames for acquisition.
+
+        Parameters
+        ----------
+        numberFrames : int
+            Number of images that should be recorded
+        """
+        self.device.AcquisitionMode = 'MultiFrame'
+        self.device.AcquisitionFrameCount = numberFrames
+
+        # Creating frames
+        self.framelist = []
+        for _ in range(numberFrames):
+            frame = self.device.getFrame()
+            frame.announceFrame()
+            frame.queueFrameCapture(self._frameCallback)
+            self.framelist.append(frame)
+
+        self.device.startCapture()
+
+    def grabStop(self):
+        """
+        Stop grabbing images and return camera to continuous mode.
+        """
+        self.device.runFeatureCommand('AcquisitionStop')
+        # Do cleanup
+        self._cleanUp()
+        # Set back to freerun mode
+        self.device.AcquisitionMode = 'Continuous'
 
     def _liveView(self):
         """
@@ -523,27 +517,33 @@ class CameraAVT(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
+        # TODO: returns 'On', 'Off' -> Change to 'in' and 'out'
         if mode is None:
-            return self.device.TriggerMode
+            return self.triggerModeSetting
         elif isinstance(mode, str):
             if mode.lower() == 'in':
                 self.device.TriggerMode = 'On'
                 self.device.TriggerSource = 'Line1'
                 self.device.TriggerSelector = 'FrameStart'
                 self.device.TriggerActivation = "RisingEdge"
+
+                self.triggerModeSetting = 'in'
             elif mode.lower() == 'out':
                 # TODO: Implement out trigger for AVT cameras
+                self.triggerModeSetting = 'out'
                 raise NotImplementedError('Sending triggers is not'
                                           'implemented yet!')
             elif mode.lower() == 'off':
                 self.device.TriggerMode = 'Off'
                 self.device.TriggerSource = 'Freerun'
                 self.device.TriggerSelector = 'FrameStart'
+
+                self.triggerModeSetting = 'off'
             else:
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.TriggerMode
+            return self.triggerModeSetting
         else:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
@@ -569,10 +569,9 @@ if __name__ == '__main__':
               'Bad_input': 'Yo Mama is fat'}
     # Use one of source entries here:
     # cam_device = contr.getDevice(source['Handle_list'])
-    cam_device = contr.getDevice('DEV_000F314D941E')
+    # cam_device = contr.getDevice('DEV_000F314D941E')
 
-
-    # cam_device.openDevice()
+    cam_device = CameraAVT('DEV_000F314D941E')
 
     # Listing features of device
     if bListFeatures:
