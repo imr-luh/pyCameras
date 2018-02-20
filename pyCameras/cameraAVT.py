@@ -20,10 +20,9 @@ import time
 import re
 import copy
 import numpy as np
-import pymba
-import cv2 as cv
 from pymba import Vimba
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+
 
 class CameraControllerAVT(CameraControllerTemplate):
     """
