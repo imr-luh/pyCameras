@@ -4,7 +4,6 @@ __email__ = "niklas.kroeger@imr.uni-hannover.de"
 __status__ = "Development"
 
 import re
-import threading
 
 import pypylon
 
@@ -92,9 +91,7 @@ class CameraBasler(CameraTemplate):
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
         super(CameraBasler, self).__init__(self.device_handle)
-        self.grabberThread = None
         self.expected_tiggered_images = 0
-        self.grabbedImages = []
         self.registerFeatures()
         self.openDevice()
 
@@ -304,8 +301,6 @@ class CameraBasler(CameraTemplate):
                           ''.format(num=numberFrames))
         self.expected_tiggered_images = numberFrames
         self.setTriggerMode('in')
-        self.grabberThread = threading.Thread(target=self._grabTriggeredImages)
-        self.grabberThread.start()
         return
     # Temporary fix until function calls are unified to camera template
     setupFrameList = grabStart
@@ -315,28 +310,8 @@ class CameraBasler(CameraTemplate):
         Stop grabbing images and return camera from trigger mode to normal mode
         """
         self.setTriggerMode('off')
-        self.grabberThread = None
 
-    def _grabTriggeredImages(self):
-        """
-        Background function that tries to gather all triggered images
-
-        This function should run in a background thread and is used to
-        constantly check if a new image has been triggered. For this the
-        pypylon grab_images() generator is used. It returns an image
-        for every trigger signal the camera receives. The background thread is
-        responsible to gather the expected number of triggered images in a
-        list. To retreive the list please use self.getImagesFromFrameList()
-        """
-        self.logger.debug('CAMERABASLER.PY: _grabTriggeredImages started!')
-        for img in self.device.grab_images(self.expected_tiggered_images):
-            self.logger.debug('CAMERABASLER.PY: got triggered Image...')
-            self.grabbedImages.append(img)
-        self.expected_tiggered_images = 0
-        self.logger.debug('CAMERABASLER.PY: done in background thread!')
-        return
-
-    def getImages(self, num=None):
+    def getImages(self):
         """
         Return list of images that were grabbed from the camera due to
         triggering
@@ -357,17 +332,7 @@ class CameraBasler(CameraTemplate):
             List of grabbed images that were recorded due to triggers
         """
         self.logger.debug('GETTING IMAGES')
-        try:
-            while self.grabberThread.isAlive():
-                pass
-        except AttributeError:
-            pass
-        self.grabStop()
-
-        imgs = self.grabbedImages[:num]
-        self.grabbedImages = self.grabbedImages[num:] if num is not None else []
-
-        return imgs
+        return list(self.device.grab_images(self.expected_tiggered_images))
     # Temporary fix until function calls are unified to camera template
     getImagesFromFrameList = getImages
 
