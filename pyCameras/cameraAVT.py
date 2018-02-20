@@ -3,7 +3,7 @@
 
 __author__ = "Tim Betker"
 __copyright__ = "Copyright 2017, LUH: IMR"
-__credits__ = ["Rüder Beermann"]
+__credits__ = ["Rüdiger Beermann"]
 # __license__ = ""
 __version__ = "0.2"
 __maintainer__ = "Tim Betker"
@@ -24,7 +24,6 @@ import pymba
 import cv2 as cv
 from pymba import Vimba
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
-
 
 class CameraControllerAVT(CameraControllerTemplate):
     """
