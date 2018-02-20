@@ -378,9 +378,6 @@ class CameraAVT(CameraTemplate):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
-    def setFeature(self, *args, **kwargs):
-        pass
-
     def getFeature(self, key):
         """
         Get a camera setting
