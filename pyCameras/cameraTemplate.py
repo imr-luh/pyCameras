@@ -204,8 +204,15 @@ class CameraTemplate(object):
 
         callback : function
             Function that should be called to set the corresponding feature
+
+        Notes
+        -----
+        To prevent typos in capitalization of keys all feature registrations
+        are done with key.lower(). This is already incorporated in the
+        CameraTemplate.setFeature() by searching the self.features dict for
+        key.lower().
         """
-        self.features[key] = callback
+        self.features[key.lower()] = callback
 
     def registerSharedFeatures(self):
         """
@@ -262,6 +269,13 @@ class CameraTemplate(object):
         value : object
             Parameters shat should be passed on to the corresponding function
             implementation
+
+        Notes
+        -----
+        To prevent capitalization typos all feature registrations are done with
+        key.lower() (see CameraTemplate.registerFeature()). This means that
+        feature lookups are also done with key.lower(). This has to be
+        considered if this function is overloaded.
         """
         if len(args) == 1:
             if isinstance(args[0], dict):
@@ -289,7 +303,7 @@ class CameraTemplate(object):
 
         if all(k in kwargs.keys() for k in ('key', 'value')):
             try:
-                self.features[kwargs['key']](kwargs['value'])
+                self.features[kwargs['key'].lower()](kwargs['value'])
             except KeyError:
                 raise NotImplementedError('The desired key \'{key}\' has no '
                                           'registered implementation. Desired '
