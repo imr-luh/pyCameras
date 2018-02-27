@@ -262,22 +262,37 @@ class CameraAVT(CameraTemplate):
 
         return imgData.copy()
 
-    def getImages(self):
-        """
-        Acquires num images with previously set settings. This function will set camera to MultiFrame mode and
-        afterwards switch back to freerun. Trigger mode has to be set beforehand.
-        This function is blocking!
+    def prepareRecording(self, num):
+        """ Sets the camera to MultiFrame mode and prepares frames. Use with "record()"-function.
 
         Parameters
         ----------
         num : int
-            number of images to be captured during acquisition
+            number of frames to be captured during acquisition
+        """
+        self.device.AcquisitionMode = 'MultiFrame'
+        self.device.AcquisitionFrameCount = num
+
+        # Creating frames
+        self.framelist = []
+        for _ in range(num):
+            frame = self.device.getFrame()
+            frame.announceFrame()
+            frame.queueFrameCapture(self._frameCallback)
+            self.framelist.append(frame)
+
+        self.device.startCapture()
+
+    def record(self):
+        """ Blocking image acquisition, ends acquisition when num frames are captured,
+        where num is set by "prepareRecording(num)". Only use with "prepareRecording(num)".
 
         Returns
         -------
-        imgs : list
-            List of recorded images that were recorded
+        imgData : list
+            List of images
         """
+
         self.imgData = []
         self.device.runFeatureCommand('AcquisitionStart')
         # Block until num images are captured
@@ -291,34 +306,62 @@ class CameraAVT(CameraTemplate):
 
         return copy.deepcopy(self.imgData)
 
-    def grabStart(self, numberFrames):
+    def getImages(self, num):
         """
-        Prepare the camera to record a given number of frames.
-        Announces frames for acquisition.
+        Wraps "prepareRecording(num)" and "record()" functions.
+        Leads to a blocking all-in-one image acquisition function.
+        Trigger mode has to be set beforehand.
 
         Parameters
         ----------
-        numberFrames : int
+        num : int
+            number of images to be captured during acquisition
+
+        Returns
+        -------
+        imgs : list
+            List of recorded images that were recorded
+        """
+        self.prepareRecording(num)
+        imgs = self.record()
+
+        return imgs
+
+    # TODO: If grabStart without "num" is needed - implement threading solution with while loop (similar to _liveView())
+    def grabStart(self, num):
+        """
+        Prepares num images to be grabbed. This function is not blocking. Calling "grabStop()" will end acquisition.
+
+        Parameters
+        ----------
+        num : int
             Number of images that should be recorded
         """
         self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = numberFrames
+        self.device.AcquisitionFrameCount = num
 
         # Creating frames
         self.framelist = []
-        for _ in range(numberFrames):
+        for _ in range(num):
             frame = self.device.getFrame()
             frame.announceFrame()
             frame.queueFrameCapture(self._frameCallback)
             self.framelist.append(frame)
 
         self.device.startCapture()
+        self.device.runFeatureCommand('AcquisitionStart')
 
     def grabStop(self):
         """
         Stop grabbing images and return camera to continuous mode.
         """
-        pass
+        self.device.runFeatureCommand('AcquisitionStop')
+        # Do cleanup
+        self._cleanUp()
+        # Set back to freerun mode
+        self.device.AcquisitionMode = 'Continuous'
+
+        return copy.deepcopy(self.imgData)
 
     def _liveView(self):
         """
