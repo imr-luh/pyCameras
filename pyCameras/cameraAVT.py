@@ -143,6 +143,9 @@ class CameraAVT(CameraTemplate):
 
         # TODO: Adjust Datatype depending on PixelFormat?
 
+    def __del__(self):
+        self._vimba.shutdown()
+
     def _cleanUp(self):
         """
         Does some cleanup jobs. Call after "AcquisitionStop".
