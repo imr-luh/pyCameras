@@ -284,32 +284,15 @@ class CameraBasler(CameraTemplate):
         """
         return self.device.properties['Height']
 
-    def grabStart(self, numberFrames):
-        """
-        Prepare the camera to record a number of triggered frames
-
-        This turns on the TriggerMode of the camera and tells the background
-        grabberThread to wait for numberFrames images. These can afterwards
-        be read with self.getImagesFromFrameList()
-
-        Parameters
-        ----------
-        numberFrames : int
-            Number of images that should be recorded through triggering
-        """
-        self.logger.debug('Setting up Trigger with {num} images'
-                          ''.format(num=numberFrames))
-        self._expected_triggered_images = numberFrames
-        self.setTriggerMode('in')
-        return
-    # Temporary fix until function calls are unified to camera template
-    setupFrameList = grabStart
+    def grabStart(self):
+        self.logger.error('grabStart not yet implemented for {cam}'
+                          ''.format(cam=self))
+        raise NotImplementedError
 
     def grabStop(self):
-        """
-        Stop grabbing images and return camera from trigger mode to normal mode
-        """
-        self.setTriggerMode('off')
+        self.logger.error('grabStop not yet implemented for {cam}'
+                          ''.format(cam=self))
+        raise NotImplementedError
 
     def prepareRecording(self, num):
         self.logger.debug('Preparing {cam} for {num} images'
