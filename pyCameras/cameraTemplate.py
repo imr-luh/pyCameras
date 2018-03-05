@@ -160,17 +160,47 @@ class CameraTemplate(object):
         """
         raise NotImplementedError
 
-    def getImages(self, num=None):
+    def getImages(self, num):
         """
-        Return a iterable of numpy arrays corresponding to images that were
-        recorded previously. If there are no buffered images the iterable may
-        be empty.
+        Blocking function that waits for num images to be recorded and returns
+        an iterable of numpy arrays corresponding to images. Recording of
+        images is done according to the currently set trigger mode!
+
+        If a time sensitive image acquisition task is done consider using the
+        separate self.prepareRecording(num) and self.record() functions to
+        achieve the same result.
 
         Parameters
         ----------
         num : int
-            number of images to return. If None return all images currently in
-            buffer
+            number of images to return.
+        """
+        self.prepareRecording(num=num)
+        return self.record()
+
+    def prepareRecording(self, num):
+        """
+        Prepare the camera to recorded the given number of images by setting
+        up a frame buffer or doing other camera specific actions. The actual
+        recording is done in self.record() and should be blocking until the
+        desired number of images is recorded.
+
+        Parameters
+        ----------
+        num : int
+            Number of images that should be recorded
+        """
+        raise NotImplementedError
+
+    def record(self):
+        """
+        Blocking image acquisition of a previously defined number of images
+        (see prepareRecording).
+
+        Returns
+        -------
+        imgs : list
+            List of numpy arrays containing the recorded images
         """
         raise NotImplementedError
 
