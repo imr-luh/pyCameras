@@ -91,7 +91,7 @@ class CameraBasler(CameraTemplate):
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
         super(CameraBasler, self).__init__(self.device_handle)
-        self.expected_tiggered_images = 0
+        self._expected_triggered_images = 0
         self.registerFeatures()
         self.openDevice()
 
@@ -299,7 +299,7 @@ class CameraBasler(CameraTemplate):
         """
         self.logger.debug('Setting up Trigger with {num} images'
                           ''.format(num=numberFrames))
-        self.expected_tiggered_images = numberFrames
+        self._expected_triggered_images = numberFrames
         self.setTriggerMode('in')
         return
     # Temporary fix until function calls are unified to camera template
@@ -311,30 +311,16 @@ class CameraBasler(CameraTemplate):
         """
         self.setTriggerMode('off')
 
-    def getImages(self):
-        """
-        Return list of images that were grabbed from the camera due to
-        triggering
+    def prepareRecording(self, num):
+        self.logger.debug('Preparing {cam} for {num} images'
+                          ''.format(cam=self,
+                                    num=num))
+        self._expected_triggered_images = num
 
-        This function waits for the background thread responsible for getting
-        the images off the camera to stop and then returns the list of grabbed
-        images.
-
-        Parameters
-        ----------
-        num : int or None
-            Number of image to return. Images are returned in recorded order.
-            If None is passed all recorded images are returned
-
-        Returns
-        -------
-        grabbed_images : list of images
-            List of grabbed images that were recorded due to triggers
-        """
-        self.logger.debug('GETTING IMAGES')
-        return list(self.device.grab_images(self.expected_tiggered_images))
-    # Temporary fix until function calls are unified to camera template
-    getImagesFromFrameList = getImages
+    def record(self):
+        self.logger.debug('Recording {num} images'
+                          ''.format(num=self._expected_triggered_images))
+        return list(self.device.grab_images(self._expected_triggered_images))
 
     def setTriggerMode(self, mode=None):
         """
