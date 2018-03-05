@@ -18,8 +18,8 @@ The camera interface allows the following function calls:
 | getImages | Get a number of images from the camera |
 | prepareRecording | Prepare the camera to record a number of images (call record afterwards) |
 | record | Record the previously announced number of images (see prepareRecording) |
-| grabStart | Prepare the camera to record triggered images TODO: still up to date? |
-| grabStop | Stop the camera from recorded triggered images TODO: still up to date? |
+| grabStart | Start recording images (non-blocking) and store the images in an internal variable (see grabStop) |
+| grabStop | Stop recording images (see grabStart) and return the images that have been recorded |
 | getFeature | Get the value for the passed feature keyword |
 | setFeature | Set the value for the passed feature keyword |
 | listFeatures | Return a list of all registered feature keywords |

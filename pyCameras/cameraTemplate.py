@@ -206,13 +206,22 @@ class CameraTemplate(object):
 
     def grabStart(self):
         """
-        Start grabbing images
+        Start grabbing images in a non-blocking way and store those images in
+        an internal variable
+
+        See Also
+        --------
+        self.grabStop()
         """
         raise NotImplementedError
 
     def grabStop(self):
         """
-        Stop grabbing images
+        Stop grabbing images and return the images that have been recorded
+
+        See Also
+        --------
+        self.grabStart()
         """
         raise NotImplementedError
 
