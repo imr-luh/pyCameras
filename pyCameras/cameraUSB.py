@@ -168,6 +168,8 @@ class CameraUSB(CameraTemplate):
         self.logger.debug('usb Camera {device_handle} is ready'
                           ''.format(device_handle=self.device_handle))
         self.registerFeature(key='resolution', callback=self.setResolution)
+
+        self._expected_images = 0  # see prepareRecording(num), and record()
         self.openDevice()
 
     @staticmethod
@@ -204,6 +206,12 @@ class CameraUSB(CameraTemplate):
         if ret is True:
             return img
         return None
+
+    def prepareRecording(self, num):
+        self._expected_images = num
+
+    def record(self):
+        return [self.getImage() for _ in range(self._expected_images)]
 
     def getFeature(self, key):
         return self.features[key]()
