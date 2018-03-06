@@ -302,7 +302,6 @@ if __name__ == '__main__':
 
     available_devices = CameraUSB.listDevices()
     cam = CameraUSB(available_devices[-1])
-    cam.openDevice()
 
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
     while True:
