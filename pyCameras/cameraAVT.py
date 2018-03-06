@@ -309,27 +309,6 @@ class CameraAVT(CameraTemplate):
 
         return copy.deepcopy(self.imgData)
 
-    def getImages(self, num):
-        """
-        Wraps "prepareRecording(num)" and "record()" functions.
-        Leads to a blocking all-in-one image acquisition function.
-        Trigger mode has to be set beforehand.
-
-        Parameters
-        ----------
-        num : int
-            number of images to be captured during acquisition
-
-        Returns
-        -------
-        imgs : list
-            List of recorded images that were recorded
-        """
-        self.prepareRecording(num)
-        imgs = self.record()
-
-        return imgs
-
     # TODO: If grabStart without "num" is needed - implement threading solution with while loop (similar to _liveView())
     def grabStart(self, num):
         """
