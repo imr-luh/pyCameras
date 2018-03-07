@@ -127,8 +127,6 @@ class CameraAVT(CameraTemplate):
         super(CameraAVT, self).__init__(device_handle)
         self.device = self._vimba.getCamera(device_handle)
         self.modelName = self.device._info.modelName
-        self.camId = None
-        self.camId = self.getCamId()
         self.triggerModeSetting = 'off'
 
         # Open device and activate freerun mode
@@ -172,7 +170,7 @@ class CameraAVT(CameraTemplate):
         self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
 
-    def getCamId(self):
+    def _getCamId(self):
         """
         Creates a cam-specific cam id, which consists of the manufacturer and a 4 digit number.
         This id makes it possible to identify the virtual object with real object.
