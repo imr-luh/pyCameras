@@ -15,6 +15,8 @@ import math
 
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
 
+LOGGING_LEVEL = None
+
 
 def v4l2ctlSet(device, key, value):
     """
@@ -105,6 +107,9 @@ class CameraControllerUSB(CameraControllerTemplate):
             Expected number of cameras currently connected. Default = 4
         """
         super(CameraControllerUSB, self).__init__()
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting usb Camera Controller')
         self.num_of_cams = num_of_cams
         self.device_handles = []

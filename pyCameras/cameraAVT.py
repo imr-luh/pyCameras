@@ -16,12 +16,16 @@ __developer__ = __author__
 Based on AVT implementation of Rüdiger Beermann and pymba: https://github.com/morefigs/pymba.git
 '''
 
-import time
-import re
 import copy
+import re
+import time
+
 import numpy as np
 from pymba import Vimba
+
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+
+LOGGING_LEVEL = None
 
 
 class CameraControllerAVT(CameraControllerTemplate):
@@ -125,6 +129,9 @@ class CameraAVT(CameraTemplate):
         else:
             self._vimba = vimba
         super(CameraAVT, self).__init__(device_handle)
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.device = self._vimba.getCamera(device_handle)
         self.modelName = self.device._info.modelName
         self.triggerModeSetting = 'off'
