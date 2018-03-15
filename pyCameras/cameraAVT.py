@@ -135,7 +135,8 @@ class CameraAVT(CameraTemplate):
         self.device.TriggerMode = 'Off'
         self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
         # Influences framerate, necessary if network bandwidth is not big enough
-        self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec
+        # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
+        self.device.StreamBytesPerSecond = 115000000    # 100 Mb/sec (with GigE)
         self.framelist = []
         self.imgData = []
 
@@ -531,7 +532,7 @@ class CameraAVT(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
-        # TODO: returns 'On', 'Off' -> Change to 'in' and 'out'
+        self.logger.debug("Setting trigger mode to: {mode}".format(mode=mode))
         if mode is None:
             return self.triggerModeSetting
         elif isinstance(mode, str):

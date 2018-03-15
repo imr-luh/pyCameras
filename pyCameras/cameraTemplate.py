@@ -342,6 +342,8 @@ class CameraTemplate(object):
 
         if all(k in kwargs.keys() for k in ('key', 'value')):
             try:
+                self.logger.debug("Setting key: {key} with value: {value}"
+                                  "".format(key=kwargs['key'], value=kwargs['value']))
                 self.features[kwargs['key'].lower()](kwargs['value'])
             except KeyError:
                 raise NotImplementedError('The desired key \'{key}\' has no '
@@ -366,15 +368,6 @@ class CameraTemplate(object):
             String describing the feature value to return
         """
         raise NotImplementedError
-        # example implementation:
-        # try:
-        #     self.logger.debug('Updating setting {key} to {value}'
-        #                       ''.format(key=item.key,
-        #                                 value=newValue))
-        #     self.properties[item.key] = eval(newValue)
-        #     self.updatePropertyView.emit(item, newValue)
-        # except Exception as e:
-        #     self.logger.exception(str(e))
 
     def getFeatures(self):
         """
