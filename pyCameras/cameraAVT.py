@@ -67,7 +67,7 @@ class CameraControllerAVT(CameraControllerTemplate):
         cam : CameraAVT object
             A camera object for AVT devices corresponding to the given
             device handle
-        # """
+        """
 
         # Check if device handle is list or tuple, if so: use first entry
         if isinstance(device_handle, (list, tuple)):
@@ -125,7 +125,7 @@ class CameraAVT(CameraTemplate):
         else:
             self._vimba = vimba
         super(CameraAVT, self).__init__(device_handle)
-        self.device = self._vimba.getCamera(device_handle)
+        self.device = self._vimba.getCamera(self._checkDeviceHandle(device_handle))
         self.modelName = self.device._info.modelName
         self.triggerModeSetting = 'off'
 
@@ -144,6 +144,35 @@ class CameraAVT(CameraTemplate):
 
     def __del__(self):
         self._vimba.shutdown()
+
+    def _checkDeviceHandle(self, device_handle):
+        """
+        Return the corresponding camera object for given device handle
+
+        Parameters
+        ----------
+        device_handle : can be IP address, mac address or
+                        camera ID (DEV_...) as reported by vimba.getCameraIds
+
+        Returns
+        -------
+        cam : CameraAVT object
+            A camera object for AVT devices corresponding to the given
+            device handle
+        """
+        # Check if device handle is list or tuple, if so: use first entry
+        if isinstance(device_handle, (list, tuple)):
+            device_handle = device_handle[0]
+
+        self.logger.debug('Opening device {device_handle}'
+                          ''.format(device_handle=device_handle))
+        # Search for mac addresses in form 'DEV_XXXXXXXXXXXX'
+        candidates = re.findall(r'(DEV_[0-9A-Z]{11,13})', device_handle)
+        if len(candidates) == 0:
+            # no mac address found: search for IP
+            candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
+
+        return candidates[0]
 
     def _cleanUp(self):
         """
@@ -205,6 +234,7 @@ class CameraAVT(CameraTemplate):
         """
         Opens a camera device with the stored self.device object
         """
+
         try:
             self.logger.debug('Opening camera device')
             self.device.openCamera()
