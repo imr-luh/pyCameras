@@ -3,11 +3,14 @@ __author__ = 'Niklas Kroeger'
 __email__ = "niklas.kroeger@imr.uni-hannover.de"
 __status__ = "Development"
 
+import logging
 import re
 
 import pypylon
 
 from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+
+LOGGING_LEVEL = None
 
 
 class CameraControllerBasler(CameraControllerTemplate):
@@ -91,6 +94,9 @@ class CameraBasler(CameraTemplate):
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
         super(CameraBasler, self).__init__(self.device_handle)
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self._expected_triggered_images = 0
         self.registerFeatures()
         self.openDevice()

@@ -35,6 +35,8 @@ import logging
 
 from imrpy.misc.iterators import grouper
 
+LOGGING_LEVEL = None
+
 
 class CameraControllerTemplate(object):
     """
@@ -107,6 +109,8 @@ class CameraTemplate(object):
             device connection
         """
         self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.device_handle = device_handle  # Use this to identify and open the
                                             # device
         self.device = None  # Use this variable to store the device itself
