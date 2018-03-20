@@ -176,7 +176,7 @@ class CameraAVT(CameraTemplate):
         self.logger.debug('Opening device {device_handle}'
                           ''.format(device_handle=device_handle))
         # Search for mac addresses in form 'DEV_XXXXXXXXXXXX'
-        candidates = re.findall(r'(DEV_[0-9A-Z]{11,13})', device_handle)
+        candidates = re.findall(r'([0-9A-Z]{11,13})', device_handle)
         if len(candidates) == 0:
             # no mac address found: search for IP
             candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
