@@ -309,7 +309,8 @@ class CameraBasler(CameraTemplate):
     def record(self):
         self.logger.debug('Recording {num} images'
                           ''.format(num=self._expected_triggered_images))
-        return list(self.device.grab_images(self._expected_triggered_images))
+        return list(self.device.grab_images(self._expected_triggered_images,
+                                            timeout=5000))
 
     def setTriggerMode(self, mode=None):
         """
