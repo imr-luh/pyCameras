@@ -234,25 +234,25 @@ class CameraBasler(CameraTemplate):
             self.device.properties['GainRaw'] = gain
         return self.device.properties['GainRaw']
 
-    def setFormat(self, format=None):
+    def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
 
         Parameters
         ----------
-        format : str
+        fmt : str
             String describing the desired image format (e.g. "Mono8" or
             "Mono10"), or None to read the current image format
 
         Returns
         -------
-        format : str
+        fmt : str
             The image format after applying the passed value
         """
-        if format is not None:
+        if fmt is not None:
             try:
-                self.device.properties['PixelFormat'] = format
+                self.device.properties['PixelFormat'] = fmt
             except Exception as e:
                 self.logger.exception(e)
         return self.device.properties['PixelFormat']

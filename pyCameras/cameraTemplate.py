@@ -437,20 +437,20 @@ class CameraTemplate(object):
         """
         raise NotImplementedError
 
-    def setFormat(self, format=None):
+    def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
 
         Parameters
         ----------
-        format : str
+        fmt : str
             String describing the desired image format (e.g. "mono8"), or None
             to read the current image format
 
         Returns
         -------
-        format : str
+        fmt : str
             The image format after applying the passed value
         """
         raise NotImplementedError

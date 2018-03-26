@@ -542,27 +542,27 @@ class CameraAVT(CameraTemplate):
             self.device.Gain = gain
         return self.device.Gain
 
-    def setFormat(self, format=None):
+    def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
 
         Parameters
         ----------
-        format : str
+        fmt : str
             String describing the desired image format (e.g. "mono8"), or None
             to read the current image format
 
         Returns
         -------
-        format : str
+        fmt : str
             The image format after applying the passed value
         """
 
-        if format is not None:
-            self.logger.debug('Setting <PixelFormat> to {format}'
-                              ''.format(format=format))
-            self.device.PixelFormat = format
+        if fmt is not None:
+            self.logger.debug('Setting <PixelFormat> to {fmt}'
+                              ''.format(fmt=fmt))
+            self.device.PixelFormat = fmt
         return self.device.PixelFormat
 
     def setTriggerMode(self, mode=None):
