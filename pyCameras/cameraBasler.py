@@ -290,6 +290,11 @@ class CameraBasler(CameraTemplate):
         """
         return self.device.properties['Height']
 
+    def setResolution(self, resolution=None):
+        self.logger.warning('setResolution currently only returns current '
+                            'resolution.')
+        return (self.getImageWidth(), self.getImageHeight())
+
     def grabStart(self):
         self.logger.error('grabStart not yet implemented for {cam}'
                           ''.format(cam=self))
