@@ -50,6 +50,8 @@ class CameraControllerTemplate(object):
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.device_handles = []
 
     def listDevices(self):

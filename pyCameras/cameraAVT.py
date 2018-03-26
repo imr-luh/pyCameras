@@ -38,6 +38,9 @@ class CameraControllerAVT(CameraControllerTemplate):
         Camera controller for AVT camera devices. This implementation uses pymba as backend.
         """
         super(CameraControllerAVT, self).__init__()
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting AVT Camera Controller')
         self._vimba = Vimba()
         self._vimba.startup()

@@ -170,6 +170,9 @@ class CameraUSB(CameraTemplate):
         handle for each device is counted up.
         """
         super(CameraUSB, self).__init__(device_handle)
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('usb Camera {device_handle} is ready'
                           ''.format(device_handle=self.device_handle))
         self.registerFeature(key='resolution', callback=self.setResolution)

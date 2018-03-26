@@ -23,6 +23,9 @@ class CameraControllerBasler(CameraControllerTemplate):
         pypylon as backend.
         """
         super(CameraControllerBasler, self).__init__()
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting Basler Camera Controller')
         self.device_handles = []
 
