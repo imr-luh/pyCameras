@@ -13,7 +13,8 @@ __package_name__ = "AVTcamera"
 __developer__ = __author__
 
 '''
-Based on AVT implementation of Rüdiger Beermann and pymba: https://github.com/morefigs/pymba.git
+Based on AVT implementation of Rüdiger Beermann and pymba:
+https://github.com/morefigs/pymba.git
 '''
 
 import copy
@@ -35,7 +36,8 @@ class CameraControllerAVT(CameraControllerTemplate):
     """
     def __init__(self):
         """
-        Camera controller for AVT camera devices. This implementation uses pymba as backend.
+        Camera controller for AVT camera devices. This implementation uses
+        pymba as backend.
         """
         super(CameraControllerAVT, self).__init__()
         self.logger = logging.getLogger(__name__)
@@ -112,8 +114,9 @@ class CameraAVT(CameraTemplate):
     """
     AVT Camera implementation based on pymba
 
-    Creating this Object automatically opens the camera. It is NOT necessary to call openDevice() !!!
-    This is done to set some settings to put the camera into freerun mode.
+    Creating this Object automatically opens the camera. It is NOT necessary to
+    call openDevice() !!! This is done to set some settings to put the camera
+    into freerun mode.
     """
     def __init__(self, device_handle, vimba=None):
         """
@@ -214,8 +217,9 @@ class CameraAVT(CameraTemplate):
 
     def _getCamId(self):
         """
-        Creates a cam-specific cam id, which consists of the manufacturer and a 4 digit number.
-        This id makes it possible to identify the virtual object with real object.
+        Creates a cam-specific cam id, which consists of the manufacturer and a
+        4 digit number. This id makes it possible to identify the virtual
+        object with real object.
 
         Returns
         -------
@@ -272,8 +276,8 @@ class CameraAVT(CameraTemplate):
         *args and **kwargs are ignored parameters!
 
         !!! Warning: Check transfer rate of your network connection !!!
-        Low transfer-rates may cause incomplete image transfer with missing data
-
+        Low transfer-rates may cause incomplete image transfer with missing
+        data
 
         Returns
         -------
@@ -295,10 +299,10 @@ class CameraAVT(CameraTemplate):
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
-                                       dtype=np.uint8,
-                                       shape=(frame.height,
-                                              frame.width,
-                                              1))
+                             dtype=np.uint8,
+                             shape=(frame.height,
+                                    frame.width,
+                                    1))
 
         # Do cleanup
         self._cleanUp()
@@ -307,7 +311,8 @@ class CameraAVT(CameraTemplate):
         return imgData.copy()
 
     def prepareRecording(self, num):
-        """ Sets the camera to MultiFrame mode and prepares frames. Use with "record()"-function.
+        """ Sets the camera to MultiFrame mode and prepares frames. Use with
+        "record()"-function.
 
         Parameters
         ----------
@@ -328,8 +333,9 @@ class CameraAVT(CameraTemplate):
         self.device.startCapture()
 
     def record(self):
-        """ Blocking image acquisition, ends acquisition when num frames are captured,
-        where num is set by "prepareRecording(num)". Only use with "prepareRecording(num)".
+        """ Blocking image acquisition, ends acquisition when num frames are
+        captured, where num is set by "prepareRecording(num)". Only use with
+        "prepareRecording(num)".
 
         Returns
         -------
@@ -353,7 +359,8 @@ class CameraAVT(CameraTemplate):
     # TODO: If grabStart without "num" is needed - implement threading solution with while loop (similar to _liveView())
     def grabStart(self, num):
         """
-        Prepares num images to be grabbed. This function is not blocking. Calling "grabStop()" will end acquisition.
+        Prepares num images to be grabbed. This function is not blocking.
+        Calling "grabStop()" will end acquisition.
 
         Parameters
         ----------
@@ -416,8 +423,10 @@ class CameraAVT(CameraTemplate):
             frame_data = frame.getBufferByteData()
             if success:
                 live_img = np.ndarray(buffer=frame_data,
-                                   dtype=np.uint8,
-                                   shape=(frame.height, frame.width, 1))
+                                      dtype=np.uint8,
+                                      shape=(frame.height,
+                                             frame.width,
+                                             1))
 
                 cv.imshow("IMG", live_img)
             framecount += 1
@@ -438,8 +447,8 @@ class CameraAVT(CameraTemplate):
         try:
             self.logger.debug('Listing camera features')
             featureNames = self.device.getFeatureNames()
-            print ("Printing feature names: ...\n")
-            print ("\n".join(featureNames))
+            print("Printing feature names: ...\n")
+            print("\n".join(featureNames))
         except Exception as e:
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
@@ -519,8 +528,8 @@ class CameraAVT(CameraTemplate):
         Parameters
         ----------
         gain : float
-            Desired gain value in dB to be set, or None to read the current gain
-            value
+            Desired gain value in dB to be set, or None to read the current
+            gain value
 
         Returns
         -------
@@ -622,7 +631,9 @@ if __name__ == '__main__':
     print(handle)
 
     # Dictionary to test different connection types/inputs
-    source = {'IP':'130.75.27.144', 'Handle_list': handle, 'Handle': handle[0],
+    source = {'IP': '130.75.27.144',
+              'Handle_list': handle,
+              'Handle': handle[0],
               'Bad_input': 'Yo Mama is fat'}
     # Use one of source entries here:
     # cam_device = contr.getDevice(source['Handle_list'])
@@ -645,9 +656,9 @@ if __name__ == '__main__':
         cam_device._liveView()
 
     images = cam_device.getImages(10)
-    print (len(images))
+    print(len(images))
     for _, img in enumerate(images):
-        print ('Showing image {i}'.format(i=_))
+        print('Showing image {i}'.format(i=_))
         cv.imshow('Captured image', img)
         cv.waitKey()
 

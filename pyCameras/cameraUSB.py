@@ -52,6 +52,7 @@ def v4l2ctlSet(device, key, value):
                             '{key}={value}'
                             ''.format(key=key, value=value)])
 
+
 def v4l2ctlGet(device, key):
     """
     Helper function calling the v4l2-ctl system process to get settings for a
@@ -224,7 +225,7 @@ class CameraUSB(CameraTemplate):
     def getFeature(self, key):
         return self.features[key]()
 
-    def setResolution(self, resolution=(640,480)):
+    def setResolution(self, resolution=(640, 480)):
         """
         Set the resolution of the device object
 

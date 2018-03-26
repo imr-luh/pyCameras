@@ -337,7 +337,8 @@ class CameraTemplate(object):
                 if len(kwargs) >= 1 and 'value' in kwargs.keys():
                     self.setFeature(key=args[0], value=kwargs['value'])
                 else:
-                    # assume this is the path to a settings file we should parse
+                    # assume this is the path to a settings file we should
+                    # parse
                     # TODO: implement file parsing
                     pass
         elif len(args) >= 2:
@@ -349,7 +350,8 @@ class CameraTemplate(object):
         if all(k in kwargs.keys() for k in ('key', 'value')):
             try:
                 self.logger.debug("Setting key: {key} with value: {value}"
-                                  "".format(key=kwargs['key'], value=kwargs['value']))
+                                  "".format(key=kwargs['key'],
+                                            value=kwargs['value']))
                 self.features[kwargs['key'].lower()](kwargs['value'])
             except KeyError:
                 raise NotImplementedError('The desired key \'{key}\' has no '

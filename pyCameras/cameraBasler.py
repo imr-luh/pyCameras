@@ -110,7 +110,8 @@ class CameraBasler(CameraTemplate):
         """
         self.logger.debug('Registering implemented camera specific features')
         self.registerFeature('TriggerSource', self.setTriggerSource)
-        self.registerFeature('AcquisitionFrameRateAbs', self.getAcquisitionFrameRateAbs)
+        self.registerFeature('AcquisitionFrameRateAbs',
+                             self.getAcquisitionFrameRateAbs)
         self.registerFeature('ImageWidth', self.getImageWidth)
         self.registerFeature('ImageHeight', self.getImageHeight)
 
