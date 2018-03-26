@@ -414,7 +414,7 @@ class CameraAVT(CameraTemplate):
             try:
                 frame.queueFrameCapture()
                 success = True
-            except:
+            except Exception:
                 droppedframes.append(framecount)
                 success = False
             self.device.runFeatureCommand("AcquisitionStart")
