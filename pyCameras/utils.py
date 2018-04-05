@@ -51,3 +51,7 @@ def getAllDevices():
     """
     return {implementation.__module__: implementation.listDevices() for
             implementation in listCameraImplementations()}
+
+
+if __name__ == '__main__':
+    print(getAllDevices())
