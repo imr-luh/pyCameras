@@ -8,12 +8,12 @@ import re
 
 import pypylon
 
-from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = None
 
 
-class CameraControllerBasler(CameraControllerTemplate):
+class Controller(ControllerTemplate):
     """
     Camera Controller for Basler cameras based on pypylon
     """
@@ -22,7 +22,7 @@ class CameraControllerBasler(CameraControllerTemplate):
         Camera Controller for Basler camera devices. This implementation uses
         pypylon as backend.
         """
-        super(CameraControllerBasler, self).__init__()
+        super(Controller, self).__init__()
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -56,7 +56,7 @@ class CameraControllerBasler(CameraControllerTemplate):
         """
         self.logger.debug('Opening device {device_handle}'
                           ''.format(device_handle=device_handle))
-        return CameraBasler(device_handle=device_handle)
+        return Camera(device_handle=device_handle)
 
     def closeController(self):
         """
@@ -69,7 +69,7 @@ class CameraControllerBasler(CameraControllerTemplate):
         return "<Basler Camera Controller>"
 
 
-class CameraBasler(CameraTemplate):
+class Camera(CameraTemplate):
     """
     Basler Camera implementation based on pypylon
     """
@@ -96,7 +96,7 @@ class CameraBasler(CameraTemplate):
             raise TypeError('device_handle should be of type '
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
-        super(CameraBasler, self).__init__(self.device_handle)
+        super(Camera, self).__init__(self.device_handle)
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -125,7 +125,7 @@ class CameraBasler(CameraTemplate):
         cams : list
             list of available Basler camera devices
         """
-        return CameraControllerBasler().listDevices()
+        return Controller().listDevices()
 
     def openDevice(self):
         """
@@ -401,8 +401,8 @@ def main(arguments=''):
 
     args = parser.parse_args(arguments)
 
-    devices = CameraBasler.listDevices()
-    cam = CameraBasler(devices[0])
+    devices = Camera.listDevices()
+    cam = Camera(devices[0])
     print(cam)
     print(cam.getImage())
     del cam

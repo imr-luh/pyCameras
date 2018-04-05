@@ -38,7 +38,7 @@ from imrpy.misc.iterators import grouper
 LOGGING_LEVEL = None
 
 
-class CameraControllerTemplate(object):
+class ControllerTemplate(object):
     """
     Template class for spectrometer controllers to inherit from if they are
     necessary to use the camera. The controller for camera devices should

@@ -25,12 +25,12 @@ import logging
 import numpy as np
 from pymba import Vimba
 
-from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = None
 
 
-class CameraControllerAVT(CameraControllerTemplate):
+class Controller(ControllerTemplate):
     """
     Camera controller for AVT cameras based on pymba
     """
@@ -39,7 +39,7 @@ class CameraControllerAVT(CameraControllerTemplate):
         Camera controller for AVT camera devices. This implementation uses
         pymba as backend.
         """
-        super(CameraControllerAVT, self).__init__()
+        super(Controller, self).__init__()
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -74,7 +74,7 @@ class CameraControllerAVT(CameraControllerTemplate):
 
         Returns
         -------
-        cam : CameraAVT object
+        cam : Camera object
             A camera object for AVT devices corresponding to the given
             device handle
         """
@@ -92,7 +92,7 @@ class CameraControllerAVT(CameraControllerTemplate):
             candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
 
         try:
-            return CameraAVT(device_handle=candidates[0], vimba=self._vimba)
+            return Camera(device_handle=candidates[0], vimba=self._vimba)
         except Exception as e:
             self.logger.exception('Failed to open the camera device: {e}'
                                   ''.format(e=e))
@@ -110,7 +110,7 @@ class CameraControllerAVT(CameraControllerTemplate):
         return "<AVT Camera Controller>"
 
 
-class CameraAVT(CameraTemplate):
+class Camera(CameraTemplate):
     """
     AVT Camera implementation based on pymba
 
@@ -135,7 +135,7 @@ class CameraAVT(CameraTemplate):
             time.sleep(0.2)
         else:
             self._vimba = vimba
-        super(CameraAVT, self).__init__(device_handle)
+        super(Camera, self).__init__(device_handle)
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -171,7 +171,7 @@ class CameraAVT(CameraTemplate):
 
         Returns
         -------
-        cam : CameraAVT object
+        cam : Camera object
             A camera object for AVT devices corresponding to the given
             device handle
         """
@@ -244,7 +244,7 @@ class CameraAVT(CameraTemplate):
         cams : list
             list of available AVT devices
         """
-        return CameraControllerAVT().listDevices()
+        return Controller().listDevices()
 
     def openDevice(self):
         """
@@ -626,7 +626,7 @@ if __name__ == '__main__':
     bListFeatures = False
     bLiveView = False
 
-    contr = CameraControllerAVT()
+    contr = Controller()
     handle = contr.listDevices()
     print(handle)
 
@@ -639,7 +639,7 @@ if __name__ == '__main__':
     # cam_device = contr.getDevice(source['Handle_list'])
     # cam_device = contr.getDevice('DEV_000F314D941E')
 
-    cam_device = CameraAVT('DEV_000F314D941E')
+    cam_device = Camera('DEV_000F314D941E')
 
     # Listing features of device
     if bListFeatures:

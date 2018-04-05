@@ -13,7 +13,7 @@ import sys
 import cv2
 import math
 
-from pyCameras.cameraTemplate import CameraControllerTemplate, CameraTemplate
+from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = None
 
@@ -93,7 +93,7 @@ def v4l2ctlGet(device, key):
         return None
 
 
-class CameraControllerUSB(CameraControllerTemplate):
+class Controller(ControllerTemplate):
     """
     Implementation of a generic usb camera controller
     """
@@ -107,7 +107,7 @@ class CameraControllerUSB(CameraControllerTemplate):
         num_of_cams : int
             Expected number of cameras currently connected. Default = 4
         """
-        super(CameraControllerUSB, self).__init__()
+        super(Controller, self).__init__()
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -148,7 +148,7 @@ class CameraControllerUSB(CameraControllerTemplate):
         """
         self.logger.debug('Opening device {device_handle}'
                           ''.format(device_handle=device_handle))
-        return CameraUSB(device_handle=device_handle)
+        return Camera(device_handle=device_handle)
 
     def closeController(self):
         """Delete all detected devices"""
@@ -159,7 +159,7 @@ class CameraControllerUSB(CameraControllerTemplate):
         return "<USB Camer Controller>"
 
 
-class CameraUSB(CameraTemplate):
+class Camera(CameraTemplate):
     """
     Capture device representing a generic usb webcam
     """
@@ -170,7 +170,7 @@ class CameraUSB(CameraTemplate):
         the handle should ususally be 0, if multiple cameras are attached the
         handle for each device is counted up.
         """
-        super(CameraUSB, self).__init__(device_handle)
+        super(Camera, self).__init__(device_handle)
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -192,7 +192,7 @@ class CameraUSB(CameraTemplate):
             list of camera device handles that can be used to create a new
             camera instance
         """
-        return CameraControllerUSB().listDevices()
+        return Controller().listDevices()
 
     def openDevice(self):
         """
@@ -317,8 +317,8 @@ class CameraUSB(CameraTemplate):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-    available_devices = CameraUSB.listDevices()
-    cam = CameraUSB(available_devices[-1])
+    available_devices = Camera.listDevices()
+    cam = Camera(available_devices[-1])
 
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
     while True:
