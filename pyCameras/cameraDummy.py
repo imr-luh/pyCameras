@@ -7,6 +7,7 @@ import logging
 import os
 
 import cv2
+import numpy as np
 
 from pyCameras.cameraTemplate import CameraTemplate
 
@@ -47,6 +48,7 @@ class Camera(CameraTemplate):
         self._expectedImages = 0     # used by self.record
         self._curIndex = 0
         self._imageDir = imageDir
+        self._resolution = (100, 100)
         if isinstance(self._imageDir, str):
             self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
 
@@ -64,7 +66,7 @@ class Camera(CameraTemplate):
         try:
             img = self._images[self._curIndex]
         except IndexError:
-            return None
+            return np.zeros(self._resolution, dtype=np.uint8)
         self._curIndex = (self._curIndex+1) % len(self._images)
         return img
 
@@ -83,7 +85,9 @@ class Camera(CameraTemplate):
         return 0
 
     def setResolution(self, resolution=None):
-        return 0
+        if resolution is not None:
+            self._resolution = resolution
+        return self._resolution
 
     def setGain(self, gain=None):
         return 0
