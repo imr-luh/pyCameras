@@ -106,7 +106,6 @@ class Camera(CameraTemplate):
     def closeController():
         return 0
 
-
     def _loadImages(self, imageDir, cvLoadFlags=cv2.IMREAD_GRAYSCALE):
         """
         Load all image inside the given image_dir as grayscale and store them
@@ -135,6 +134,8 @@ class Camera(CameraTemplate):
         for image in images:
             self._images.append(cv2.imread(os.path.join(imageDir, image),
                                            flags=cvLoadFlags))
+        # Set resolution to image resolution (all images should have the same resolution)
+        self.setResolution(self._images[0].shape[0:2])
 
     def __repr__(self):
         return '<Dummy Camera: {image_dir}>'.format(image_dir=self._imageDir)
