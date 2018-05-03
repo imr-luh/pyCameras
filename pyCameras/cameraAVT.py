@@ -3,7 +3,7 @@
 
 __author__ = "Tim Betker"
 __copyright__ = "Copyright 2017, LUH: IMR"
-__credits__ = ["Rüder Beermann"]
+__credits__ = ["Rüdiger Beermann"]
 # __license__ = ""
 __version__ = "0.2"
 __maintainer__ = "Tim Betker"
@@ -13,25 +13,36 @@ __package_name__ = "AVTcamera"
 __developer__ = __author__
 
 '''
-Based on AVT implementation of Rüdiger Beermann and pymba: https://github.com/morefigs/pymba.git
+Based on AVT implementation of Rüdiger Beermann and pymba:
+https://github.com/morefigs/pymba.git
 '''
 
-import time
-import re
 import copy
+import re
+import time
+import logging
+
 import numpy as np
 from pymba import Vimba
-from cameraTemplate import CameraControllerTemplate, CameraTemplate
 
-class CameraControllerAVT(CameraControllerTemplate):
+from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
+
+LOGGING_LEVEL = None
+
+
+class Controller(ControllerTemplate):
     """
     Camera controller for AVT cameras based on pymba
     """
     def __init__(self):
         """
-        Camera controller for AVT camera devices. This implementation uses pymba as backend.
+        Camera controller for AVT camera devices. This implementation uses
+        pymba as backend.
         """
-        super(CameraControllerAVT, self).__init__()
+        super(Controller, self).__init__()
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting AVT Camera Controller')
         self._vimba = Vimba()
         self._vimba.startup()
@@ -63,10 +74,10 @@ class CameraControllerAVT(CameraControllerTemplate):
 
         Returns
         -------
-        cam : CameraAVT object
+        cam : Camera object
             A camera object for AVT devices corresponding to the given
             device handle
-        # """
+        """
 
         # Check if device handle is list or tuple, if so: use first entry
         if isinstance(device_handle, (list, tuple)):
@@ -81,7 +92,7 @@ class CameraControllerAVT(CameraControllerTemplate):
             candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
 
         try:
-            return CameraAVT(device_handle=candidates[0], vimba=self._vimba)
+            return Camera(device_handle=candidates[0], vimba=self._vimba)
         except Exception as e:
             self.logger.exception('Failed to open the camera device: {e}'
                                   ''.format(e=e))
@@ -99,14 +110,15 @@ class CameraControllerAVT(CameraControllerTemplate):
         return "<AVT Camera Controller>"
 
 
-class CameraAVT(CameraTemplate):
+class Camera(CameraTemplate):
     """
     AVT Camera implementation based on pymba
 
-    Creating this Object automatically opens the camera. It is NOT necessary to call openDevice() !!!
-    This is done to set some settings to put the camera into freerun mode.
+    Creating this Object automatically opens the camera. It is NOT necessary to
+    call openDevice() !!! This is done to set some settings to put the camera
+    into freerun mode.
     """
-    def __init__(self, device_handle, vimba):
+    def __init__(self, device_handle, vimba=None):
         """
         Implementation of the AVT camera device
 
@@ -115,11 +127,22 @@ class CameraAVT(CameraTemplate):
         device_handle : object
             Unique camera device handle to identify the camera
         """
-        self._vimba = vimba
-        super(CameraAVT, self).__init__(device_handle)
-        self.device = self._vimba.getCamera(device_handle)
+        if vimba is None:
+            self._vimba = Vimba()
+            self._vimba.startup()
+            self.__system = self._vimba.getSystem()
+            self.__system.runFeatureCommand('GeVDiscoveryAllOnce')
+            time.sleep(0.2)
+        else:
+            self._vimba = vimba
+        super(Camera, self).__init__(device_handle)
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
+        self.device = self._vimba.getCamera(self._checkDeviceHandle(device_handle))
+
         self.modelName = self.device._info.modelName
-        self.camId = self.getCamId()
+        self.triggerModeSetting = 'off'
 
         # Open device and activate freerun mode
         self.openDevice()
@@ -127,10 +150,44 @@ class CameraAVT(CameraTemplate):
         self.device.TriggerMode = 'Off'
         self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
         # Influences framerate, necessary if network bandwidth is not big enough
-        self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec
+        # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
+        self.device.StreamBytesPerSecond = 115000000    # 100 Mb/sec (with GigE)
+        self.framelist = []
         self.imgData = []
 
         # TODO: Adjust Datatype depending on PixelFormat?
+
+    def __del__(self):
+        self._vimba.shutdown()
+
+    def _checkDeviceHandle(self, device_handle):
+        """
+        Return the corresponding camera object for given device handle
+
+        Parameters
+        ----------
+        device_handle : can be IP address, mac address or
+                        camera ID (DEV_...) as reported by vimba.getCameraIds
+
+        Returns
+        -------
+        cam : Camera object
+            A camera object for AVT devices corresponding to the given
+            device handle
+        """
+        # Check if device handle is list or tuple, if so: use first entry
+        if isinstance(device_handle, (list, tuple)):
+            device_handle = device_handle[0]
+
+        self.logger.debug('Opening device {device_handle}'
+                          ''.format(device_handle=device_handle))
+        # Search for mac addresses in form 'DEV_XXXXXXXXXXXX'
+        candidates = re.findall(r'([0-9A-Z]{11,13})', device_handle)
+        if len(candidates) == 0:
+            # no mac address found: search for IP
+            candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
+
+        return candidates[0]
 
     def _cleanUp(self):
         """
@@ -153,27 +210,25 @@ class CameraAVT(CameraTemplate):
             frame created by device.getFrame()
         """
         frame.waitFrameCapture(1000)
-        data = frame.getBufferByteData()
-        singleImg = np.ndarray(buffer=data,
-                               dtype=np.uint8,
-                               shape=(frame.height, frame.width))
+        singleImg = frame.getImage()
 
-        self.imgList.append(singleImg)
+        self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
 
-    def getCamId(self):
+    def _getCamId(self):
         """
-        Creates a cam-specific cam id, which consists of the manufacturer and a 4 digit number.
-        This id makes it possible to identify the virtual object with real object.
+        Creates a cam-specific cam id, which consists of the manufacturer and a
+        4 digit number. This id makes it possible to identify the virtual
+        object with real object.
 
         Returns
         -------
         camId : "unique" cam id
         """
         if self.camId is None:
-            mfr = 'AVT'     # mfr = manufacturer
+            mfr = b'AVT'     # mfr = manufacturer
             id = self.device._info.cameraIdString[-4:]
-            camId = '_'.join((mfr, id))
+            camId = b'_'.join((mfr, id)).decode('utf-8')
 
             return camId
         else:
@@ -189,12 +244,13 @@ class CameraAVT(CameraTemplate):
         cams : list
             list of available AVT devices
         """
-        return CameraControllerAVT().listDevices()
+        return Controller().listDevices()
 
     def openDevice(self):
         """
         Opens a camera device with the stored self.device object
         """
+
         try:
             self.logger.debug('Opening camera device')
             self.device.openCamera()
@@ -220,8 +276,8 @@ class CameraAVT(CameraTemplate):
         *args and **kwargs are ignored parameters!
 
         !!! Warning: Check transfer rate of your network connection !!!
-        Low transfer-rates may cause incomplete image transfer with missing data
-
+        Low transfer-rates may cause incomplete image transfer with missing
+        data
 
         Returns
         -------
@@ -243,10 +299,10 @@ class CameraAVT(CameraTemplate):
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
-                                       dtype=np.uint8,
-                                       shape=(frame.height,
-                                              frame.width,
-                                              1))
+                             dtype=np.uint8,
+                             shape=(frame.height,
+                                    frame.width,
+                                    1))
 
         # Do cleanup
         self._cleanUp()
@@ -254,63 +310,80 @@ class CameraAVT(CameraTemplate):
 
         return imgData.copy()
 
-    def getImages(self):
-        """
-        Returns list of images from self variable imgData. Grab has to be run first.
+    def prepareRecording(self, num):
+        """ Sets the camera to MultiFrame mode and prepares frames. Use with
+        "record()"-function.
 
         Parameters
         ----------
-
-        Returns
-        -------
-        grabbed_images : list of images
-            List of grabbed images that were recorded
+        num : int
+            number of frames to be captured during acquisition
         """
-        if not self.imgData:
-            print('No image data stored. Use grabStart, grabStop to acquire images!')
-
-        return self.imgData
-
-    def grabStart(self, numberFrames, triggerMode = 'in'):
-        """
-        Prepare the camera to record a number of triggered frames
-
-        This turns on the TriggerMode of the camera
-
-        Parameters
-        ----------
-        numberFrames : int
-            Number of images that should be recorded through triggering
-
-        triggerMode : string
-            String to determine if camera gets triggered or triggers while grabbing
-        """
-
-        # Prepare trigger settings
-        self.setTriggerMode(triggerMode)
-
         self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = numberFrames
-        self.imgList = []
+        self.device.AcquisitionFrameCount = num
 
         # Creating frames
-        framelist = []
-        for _ in range(numberFrames):
+        self.framelist = []
+        for _ in range(num):
             frame = self.device.getFrame()
             frame.announceFrame()
             frame.queueFrameCapture(self._frameCallback)
-            framelist.append(frame)
+            self.framelist.append(frame)
 
         self.device.startCapture()
 
-        self.device.runFeatureCommand('AcquisitionStart')
+    def record(self):
+        """ Blocking image acquisition, ends acquisition when num frames are
+        captured, where num is set by "prepareRecording(num)". Only use with
+        "prepareRecording(num)".
 
-        return 1
+        Returns
+        -------
+        imgData : list
+            List of images
+        """
+
+        self.imgData = []
+        self.device.runFeatureCommand('AcquisitionStart')
+        # Block until num images are captured
+        while len(self.imgData) != len(self.framelist):
+            pass
+        self.device.runFeatureCommand('AcquisitionStop')
+        # Do cleanup
+        self._cleanUp()
+        # Set back to freerun mode
+        self.device.AcquisitionMode = 'Continuous'
+
+        return copy.deepcopy(self.imgData)
+
+    # TODO: If grabStart without "num" is needed - implement threading solution with while loop (similar to _liveView())
+    def grabStart(self, num):
+        """
+        Prepares num images to be grabbed. This function is not blocking.
+        Calling "grabStop()" will end acquisition.
+
+        Parameters
+        ----------
+        num : int
+            Number of images that should be recorded
+        """
+        self.device.AcquisitionMode = 'MultiFrame'
+        self.device.AcquisitionFrameCount = num
+
+        # Creating frames
+        self.framelist = []
+        for _ in range(num):
+            frame = self.device.getFrame()
+            frame.announceFrame()
+            frame.queueFrameCapture(self._frameCallback)
+            self.framelist.append(frame)
+
+        self.device.startCapture()
+        self.device.runFeatureCommand('AcquisitionStart')
 
     def grabStop(self):
         """
-        Stop grabbing images and return camera from trigger mode to normal mode.
-        Stores all grabbed images in self.imgData. Will override variable.
+        Stop grabbing images and return camera to continuous mode.
         """
         self.device.runFeatureCommand('AcquisitionStop')
         # Do cleanup
@@ -318,12 +391,7 @@ class CameraAVT(CameraTemplate):
         # Set back to freerun mode
         self.device.AcquisitionMode = 'Continuous'
 
-        # Did not find a better way to return data
-        self.imgData = copy.deepcopy(self.imgList)
-
-        self.setTriggerMode('off')
-
-        return 1
+        return copy.deepcopy(self.imgData)
 
     def _liveView(self):
         """
@@ -346,7 +414,7 @@ class CameraAVT(CameraTemplate):
             try:
                 frame.queueFrameCapture()
                 success = True
-            except:
+            except Exception:
                 droppedframes.append(framecount)
                 success = False
             self.device.runFeatureCommand("AcquisitionStart")
@@ -355,8 +423,10 @@ class CameraAVT(CameraTemplate):
             frame_data = frame.getBufferByteData()
             if success:
                 live_img = np.ndarray(buffer=frame_data,
-                                   dtype=np.uint8,
-                                   shape=(frame.height, frame.width, 1))
+                                      dtype=np.uint8,
+                                      shape=(frame.height,
+                                             frame.width,
+                                             1))
 
                 cv.imshow("IMG", live_img)
             framecount += 1
@@ -377,14 +447,11 @@ class CameraAVT(CameraTemplate):
         try:
             self.logger.debug('Listing camera features')
             featureNames = self.device.getFeatureNames()
-            print ("Printing feature names: ...\n")
-            print ("\n".join(featureNames))
+            print("Printing feature names: ...\n")
+            print("\n".join(featureNames))
         except Exception as e:
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
-
-    def setFeature(self, *args, **kwargs):
-        pass
 
     def getFeature(self, key):
         """
@@ -461,8 +528,8 @@ class CameraAVT(CameraTemplate):
         Parameters
         ----------
         gain : float
-            Desired gain value in dB to be set, or None to read the current gain
-            value
+            Desired gain value in dB to be set, or None to read the current
+            gain value
 
         Returns
         -------
@@ -475,27 +542,27 @@ class CameraAVT(CameraTemplate):
             self.device.Gain = gain
         return self.device.Gain
 
-    def setFormat(self, format=None):
+    def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
 
         Parameters
         ----------
-        format : str
+        fmt : str
             String describing the desired image format (e.g. "mono8"), or None
             to read the current image format
 
         Returns
         -------
-        format : str
+        fmt : str
             The image format after applying the passed value
         """
 
-        if format is not None:
-            self.logger.debug('Setting <PixelFormat> to {format}'
-                              ''.format(format=format))
-            self.device.PixelFormat = format
+        if fmt is not None:
+            self.logger.debug('Setting <PixelFormat> to {fmt}'
+                              ''.format(fmt=fmt))
+            self.device.PixelFormat = fmt
         return self.device.PixelFormat
 
     def setTriggerMode(self, mode=None):
@@ -516,27 +583,33 @@ class CameraAVT(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
+        self.logger.debug("Setting trigger mode to: {mode}".format(mode=mode))
         if mode is None:
-            return self.device.TriggerMode
+            return self.triggerModeSetting
         elif isinstance(mode, str):
             if mode.lower() == 'in':
                 self.device.TriggerMode = 'On'
                 self.device.TriggerSource = 'Line1'
                 self.device.TriggerSelector = 'FrameStart'
                 self.device.TriggerActivation = "RisingEdge"
+
+                self.triggerModeSetting = 'in'
             elif mode.lower() == 'out':
                 # TODO: Implement out trigger for AVT cameras
+                self.triggerModeSetting = 'out'
                 raise NotImplementedError('Sending triggers is not'
                                           'implemented yet!')
             elif mode.lower() == 'off':
                 self.device.TriggerMode = 'Off'
                 self.device.TriggerSource = 'Freerun'
                 self.device.TriggerSelector = 'FrameStart'
+
+                self.triggerModeSetting = 'off'
             else:
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.TriggerMode
+            return self.triggerModeSetting
         else:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
@@ -553,19 +626,20 @@ if __name__ == '__main__':
     bListFeatures = False
     bLiveView = False
 
-    contr = CameraControllerAVT()
+    contr = Controller()
     handle = contr.listDevices()
     print(handle)
 
     # Dictionary to test different connection types/inputs
-    source = {'IP':'130.75.27.144', 'Handle_list': handle, 'Handle': handle[0],
+    source = {'IP': '130.75.27.144',
+              'Handle_list': handle,
+              'Handle': handle[0],
               'Bad_input': 'Yo Mama is fat'}
     # Use one of source entries here:
     # cam_device = contr.getDevice(source['Handle_list'])
-    cam_device = contr.getDevice('DEV_000F314D941E')
+    # cam_device = contr.getDevice('DEV_000F314D941E')
 
-
-    # cam_device.openDevice()
+    cam_device = Camera('DEV_000F314D941E')
 
     # Listing features of device
     if bListFeatures:
@@ -582,9 +656,9 @@ if __name__ == '__main__':
         cam_device._liveView()
 
     images = cam_device.getImages(10)
-    print (len(images))
+    print(len(images))
     for _, img in enumerate(images):
-        print ('Showing image {i}'.format(i=_))
+        print('Showing image {i}'.format(i=_))
         cv.imshow('Captured image', img)
         cv.waitKey()
 

@@ -14,10 +14,12 @@ The camera interface allows the following function calls:
 | listDevices | List devices that can be opened with the implemented camera object |
 | openDevice | Actually open the device connection to the camera |
 | closeDevice | Close the connection to the camera |
-| getImage | Get a single (freshly recorded) image from the camera |
-| getImages | Get images that have been recorded via triggering |
-| grabStart | Prepare the camera to record triggered images |
-| grabStop | Stop the camera from recorded triggered images |
+| getImage | Get a single image from the camera |
+| getImages | Get a number of images from the camera |
+| prepareRecording | Prepare the camera to record a number of images (call record afterwards) |
+| record | Record the previously announced number of images (see prepareRecording) |
+| grabStart | Start recording images (non-blocking) and store the images in an internal variable (see grabStop) |
+| grabStop | Stop recording images (see grabStart) and return the images that have been recorded |
 | getFeature | Get the value for the passed feature keyword |
 | setFeature | Set the value for the passed feature keyword |
 | listFeatures | Return a list of all registered feature keywords |

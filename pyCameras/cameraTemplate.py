@@ -35,8 +35,10 @@ import logging
 
 from imrpy.misc.iterators import grouper
 
+LOGGING_LEVEL = None
 
-class CameraControllerTemplate(object):
+
+class ControllerTemplate(object):
     """
     Template class for spectrometer controllers to inherit from if they are
     necessary to use the camera. The controller for camera devices should
@@ -48,6 +50,8 @@ class CameraControllerTemplate(object):
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.device_handles = []
 
     def listDevices(self):
@@ -107,6 +111,8 @@ class CameraTemplate(object):
             device connection
         """
         self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
         self.device_handle = device_handle  # Use this to identify and open the
                                             # device
         self.device = None  # Use this variable to store the device itself
@@ -160,29 +166,68 @@ class CameraTemplate(object):
         """
         raise NotImplementedError
 
-    def getImages(self, num=None):
+    def getImages(self, num):
         """
-        Return a iterable of numpy arrays corresponding to images. 
-        If there are no buffered images the iterable may
-        be empty.
+        Blocking function that waits for num images to be recorded and returns
+        an iterable of numpy arrays corresponding to images. Recording of
+        images is done according to the currently set trigger mode!
+
+        If a time sensitive image acquisition task is done consider using the
+        separate self.prepareRecording(num) and self.record() functions to
+        achieve the same result.
 
         Parameters
         ----------
         num : int
-            number of images to return. If None return all images currently in
-            buffer
+            number of images to return.
+        """
+        self.prepareRecording(num=num)
+        return self.record()
+
+    def prepareRecording(self, num):
+        """
+        Prepare the camera to recorded the given number of images by setting
+        up a frame buffer or doing other camera specific actions. The actual
+        recording is done in self.record() and should be blocking until the
+        desired number of images is recorded.
+
+        Parameters
+        ----------
+        num : int
+            Number of images that should be recorded
+        """
+        raise NotImplementedError
+
+    def record(self):
+        """
+        Blocking image acquisition of a previously defined number of images
+        (see prepareRecording).
+
+        Returns
+        -------
+        imgs : list
+            List of numpy arrays containing the recorded images
         """
         raise NotImplementedError
 
     def grabStart(self):
         """
-        Start grabbing images
+        Start grabbing images in a non-blocking way and store those images in
+        an internal variable
+
+        See Also
+        --------
+        self.grabStop()
         """
         raise NotImplementedError
 
     def grabStop(self):
         """
-        Stop grabbing images
+        Stop grabbing images and return the images that have been recorded
+
+        See Also
+        --------
+        self.grabStart()
         """
         raise NotImplementedError
 
@@ -204,8 +249,15 @@ class CameraTemplate(object):
 
         callback : function
             Function that should be called to set the corresponding feature
+
+        Notes
+        -----
+        To prevent typos in capitalization of keys all feature registrations
+        are done with key.lower(). This is already incorporated in the
+        CameraTemplate.setFeature() by searching the self.features dict for
+        key.lower().
         """
-        self.features[key] = callback
+        self.features[key.lower()] = callback
 
     def registerSharedFeatures(self):
         """
@@ -262,6 +314,13 @@ class CameraTemplate(object):
         value : object
             Parameters shat should be passed on to the corresponding function
             implementation
+
+        Notes
+        -----
+        To prevent capitalization typos all feature registrations are done with
+        key.lower() (see CameraTemplate.registerFeature()). This means that
+        feature lookups are also done with key.lower(). This has to be
+        considered if this function is overloaded.
         """
         if len(args) == 1:
             if isinstance(args[0], dict):
@@ -278,7 +337,8 @@ class CameraTemplate(object):
                 if len(kwargs) >= 1 and 'value' in kwargs.keys():
                     self.setFeature(key=args[0], value=kwargs['value'])
                 else:
-                    # assume this is the path to a settings file we should parse
+                    # assume this is the path to a settings file we should
+                    # parse
                     # TODO: implement file parsing
                     pass
         elif len(args) >= 2:
@@ -289,7 +349,10 @@ class CameraTemplate(object):
 
         if all(k in kwargs.keys() for k in ('key', 'value')):
             try:
-                self.features[kwargs['key']](kwargs['value'])
+                self.logger.debug("Setting key: {key} with value: {value}"
+                                  "".format(key=kwargs['key'],
+                                            value=kwargs['value']))
+                self.features[kwargs['key'].lower()](kwargs['value'])
             except KeyError:
                 raise NotImplementedError('The desired key \'{key}\' has no '
                                           'registered implementation. Desired '
@@ -313,15 +376,6 @@ class CameraTemplate(object):
             String describing the feature value to return
         """
         raise NotImplementedError
-        # example implementation:
-        # try:
-        #     self.logger.debug('Updating setting {key} to {value}'
-        #                       ''.format(key=item.key,
-        #                                 value=newValue))
-        #     self.properties[item.key] = eval(newValue)
-        #     self.updatePropertyView.emit(item, newValue)
-        # except Exception as e:
-        #     self.logger.exception(str(e))
 
     def getFeatures(self):
         """
@@ -383,20 +437,20 @@ class CameraTemplate(object):
         """
         raise NotImplementedError
 
-    def setFormat(self, format=None):
+    def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
 
         Parameters
         ----------
-        format : str
+        fmt : str
             String describing the desired image format (e.g. "mono8"), or None
             to read the current image format
 
         Returns
         -------
-        format : str
+        fmt : str
             The image format after applying the passed value
         """
         raise NotImplementedError
