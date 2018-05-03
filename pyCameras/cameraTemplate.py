@@ -133,6 +133,7 @@ class CameraTemplate(object):
     def listDevices():
         """
         List all available camera devices correspponding to the class type
+        Each entry of this list can be used as an argument for this class constructor
         """
         raise NotImplementedError
 
@@ -155,15 +156,14 @@ class CameraTemplate(object):
     def getImage(self, *args, **kwargs):
         """
         Return a numpy array containing an image
-
         *args and **kwargs are optional parameters that may be ignored!
         """
         raise NotImplementedError
 
     def getImages(self, num=None):
         """
-        Return a iterable of numpy arrays corresponding to images that were
-        recorded previously. If there are no buffered images the iterable may
+        Return a iterable of numpy arrays corresponding to images. 
+        If there are no buffered images the iterable may
         be empty.
 
         Parameters
