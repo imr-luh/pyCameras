@@ -225,7 +225,7 @@ class Camera(CameraTemplate):
     def getFeature(self, key):
         return self.features[key]()
 
-    def setResolution(self, resolution=(640, 480)):
+    def setResolution(self, resolution=None):
         """
         Set the resolution of the device object
 
@@ -235,6 +235,9 @@ class Camera(CameraTemplate):
             The desired resolution in (width, height) the device should be set
             to
         """
+        if resolution is None:
+            # shape entries have to be flipped to return (width, height)
+            return tuple(self.getImage().shape[0:2][::-1])
         self.logger.info('Setting resolution to {resolution}'
                          ''.format(resolution=resolution))
         self.device.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
