@@ -263,7 +263,7 @@ class Camera(CameraTemplate):
         """
         self.logger.debug('Turning auto exposure {val}'
                           ''.format(val='off' if value is False else 'on'))
-        if sys.platform == 'linux':
+        if sys.platform.startswith('linux'):
             v4l2ctlSet(device=self.device_handle,
                        key='exposure_auto',
                        value='1' if value is False else '3')
@@ -292,7 +292,7 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug('Setting exposure time to {microns}us'
                               ''.format(microns=microns))
-            if sys.platform == 'linux':
+            if sys.platform.startswith('linux'):
                 v4l2ctlSet(device=self.device_handle,
                            key='exposure_absolute',
                            value=microns//1000)
@@ -302,7 +302,7 @@ class Camera(CameraTemplate):
             else:
                 raise NotImplementedError
         else:
-            if sys.platform == 'linux':
+            if sys.platform.startswith('linux'):
                 # TODO: This is only correct if 'flags=inactive' is not shown
                 # TODO: in the subprocess output -> check in regex?!
                 return int(v4l2ctlGet(device=self.device_handle,
