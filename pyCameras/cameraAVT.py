@@ -156,10 +156,12 @@ class Camera(CameraTemplate):
         self.device.StreamBytesPerSecond = 115000000    # 100 Mb/sec (with GigE)
         self.framelist = []
         self.imgData = []
+        self._clearQueueAndFrames()
 
         # TODO: Adjust Datatype depending on PixelFormat?
 
     def __del__(self):
+        # self._cleanUp()
         self._vimba.shutdown()
 
     def _checkDeviceHandle(self, device_handle):
@@ -191,6 +193,15 @@ class Camera(CameraTemplate):
 
         return candidates[0]
 
+    def _clearQueueAndFrames(self):
+        '''
+        Does some cleanup jobs. Call after whenever you feel like there might be a buffer overflow.
+        Calls:  - flushCaptureQueue()
+                - revokeAllFrames()
+        '''
+        self.device.flushCaptureQueue()
+        self.device.revokeAllFrames()
+
     def _cleanUp(self):
         """
         Does some cleanup jobs. Call after "AcquisitionStop".
@@ -199,8 +210,7 @@ class Camera(CameraTemplate):
                 - revokeAllFrames()
         """
         self.device.endCapture()
-        self.device.flushCaptureQueue()
-        self.device.revokeAllFrames()
+        self._clearQueueAndFrames()
 
     def _frameCallback(self, frame):
         """
@@ -321,6 +331,7 @@ class Camera(CameraTemplate):
         num : int
             number of frames to be captured during acquisition
         """
+        self._clearQueueAndFrames()
         self.device.AcquisitionMode = 'MultiFrame'
         self.device.AcquisitionFrameCount = num
 
