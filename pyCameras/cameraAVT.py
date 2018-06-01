@@ -139,7 +139,9 @@ class Camera(CameraTemplate):
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
+
         self.device = self._vimba.getCamera(self._checkDeviceHandle(device_handle))
+        self.device_handle = device_handle
 
         self.modelName = self.device._info.modelName
         self.triggerModeSetting = 'off'
