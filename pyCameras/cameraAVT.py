@@ -156,6 +156,7 @@ class Camera(CameraTemplate):
         self.device.StreamBytesPerSecond = 115000000    # 100 Mb/sec (with GigE)
         self.framelist = []
         self.imgData = []
+        self.capturing = False
         self._clearQueueAndFrames()
 
         # TODO: Adjust Datatype depending on PixelFormat?
@@ -209,7 +210,9 @@ class Camera(CameraTemplate):
                 - flushCaptureQueue()
                 - revokeAllFrames()
         """
-        self.device.endCapture()
+        if self.capturing:
+            self.device.endCapture()
+            self.capturing = False
         self._clearQueueAndFrames()
 
     def _frameCallback(self, frame):
@@ -221,7 +224,7 @@ class Camera(CameraTemplate):
         frame : frame object
             frame created by device.getFrame()
         """
-        frame.waitFrameCapture(1000)
+        frame.waitFrameCapture(2000)
         singleImg = frame.getImage()
 
         self.imgData.append(singleImg)
@@ -303,7 +306,10 @@ class Camera(CameraTemplate):
         # Announce frame
         frame.announceFrame()
         # Capture a camera image
-        self.device.startCapture()
+        if not self.capturing:
+            self.device.startCapture()
+            self.capturing = True
+
         frame.queueFrameCapture()
         self.device.runFeatureCommand('AcquisitionStart')
         self.device.runFeatureCommand('AcquisitionStop')
@@ -340,10 +346,13 @@ class Camera(CameraTemplate):
         for _ in range(num):
             frame = self.device.getFrame()
             frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
+            frame.queueFrameCapture(frameCallback=self._frameCallback)
+            # frame.queueFrameCapture()#self._frameCallback)
             self.framelist.append(frame)
 
-        self.device.startCapture()
+        if not self.capturing:
+            self.device.startCapture()
+            self.capturing = True
 
     def record(self):
         """ Blocking image acquisition, ends acquisition when num frames are
@@ -355,12 +364,13 @@ class Camera(CameraTemplate):
         imgData : list
             List of images
         """
-
         self.imgData = []
         self.device.runFeatureCommand('AcquisitionStart')
+
         # Block until num images are captured
         while len(self.imgData) != len(self.framelist):
             pass
+
         self.device.runFeatureCommand('AcquisitionStop')
         # Do cleanup
         self._cleanUp()
@@ -385,20 +395,29 @@ class Camera(CameraTemplate):
 
         # Creating frames
         self.framelist = []
+
         for _ in range(num):
             frame = self.device.getFrame()
             frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
             self.framelist.append(frame)
 
-        self.device.startCapture()
+        if not self.capturing:
+            self.device.startCapture()
+            self.capturing = True
+
+        for frame in self.framelist:
+            frame.queueFrameCapture(self._frameCallback)
+
         self.device.runFeatureCommand('AcquisitionStart')
+
 
     def grabStop(self):
         """
         Stop grabbing images and return camera to continuous mode.
         """
         self.device.runFeatureCommand('AcquisitionStop')
+        for img in self.imgData:
+            logging.DEBUG(img.shape, np.max(img))
         # Do cleanup
         self._cleanUp()
         # Set back to freerun mode
