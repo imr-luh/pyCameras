@@ -33,7 +33,7 @@ __status__ = "Development"
 import abc
 import logging
 
-from imrpy.misc.iterators import grouper
+from imrpy.misc.settingsHandler import SettingsHandler
 
 LOGGING_LEVEL = None
 
@@ -88,7 +88,7 @@ class ControllerTemplate(object):
         return "<CameraController Template: OVERLOAD THIS FUNCTION>"
 
 
-class CameraTemplate(object):
+class CameraTemplate(SettingsHandler):
     """
     Template class for camera objects to inherit from. The following methods
     have to be implemented to be able to instantiate the camera object
@@ -113,10 +113,10 @@ class CameraTemplate(object):
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
+        super(CameraTemplate, self).__init__()
         self.device_handle = device_handle  # Use this to identify and open the
                                             # device
         self.device = None  # Use this variable to store the device itself
-        self.features = {}
         self.registerSharedFeatures()
 
     @staticmethod
@@ -231,34 +231,6 @@ class CameraTemplate(object):
         """
         raise NotImplementedError
 
-    def listFeatures(self):
-        """
-        Helper function to return the properties dict
-        """
-        return list(self.features.keys())
-
-    def registerFeature(self, key, callback):
-        """
-        Register a setFeature function by defining the corresponding key and
-        callback function
-
-        Parameters
-        ----------
-        key : str
-            Key describing the feature that should be registered
-
-        callback : function
-            Function that should be called to set the corresponding feature
-
-        Notes
-        -----
-        To prevent typos in capitalization of keys all feature registrations
-        are done with key.lower(). This is already incorporated in the
-        CameraTemplate.setFeature() by searching the self.features dict for
-        key.lower().
-        """
-        self.features[key.lower()] = callback
-
     def registerSharedFeatures(self):
         """
         Registration of shared features that should be the same for all camera
@@ -279,109 +251,6 @@ class CameraTemplate(object):
 
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
-
-    def setFeature(self, *args, **kwargs):
-        """
-        Update a camera setting (described by 'key') to a new value
-
-        This function expects features in the form of 'key' - 'value'. The key
-        describes what feature should be changed and the value parameter is
-        passed to the corresponding function implementation. The key and its
-        corresponding function have to be registered in the self.features
-        dictionary. To do this use self.registerFeature.
-
-        Several different ways of passing 'key' - 'value' pairs are allowed.
-
-        For the simplest usecase of updating one setting simply pass 'key' and
-        'value' in the correct order or as keyword arguments.
-        If mutliple settings should be updated with a single call a number of
-        'key' - 'value' pairs can be passed as list or tuple in the order
-        [key1, value1, key2, value2, ... , keyN, valueN].
-        Alternatively a dict can be passed where the keys of the dict math the
-        feature keys and the associated value corresponds to the desired value
-        e.g.
-        {'resolutionX': 640, 'resolutionY': 480}
-
-        If only a single string is passed this function assumes this is the
-        path to a configuration file that should be parsed and loaded. NOTE:
-        NOT YET IMPLEMENTED!
-
-        Parameters
-        ----------
-        key : str
-            key describing the function as registered via self.registerFeature
-
-        value : object
-            Parameters shat should be passed on to the corresponding function
-            implementation
-
-        Notes
-        -----
-        To prevent capitalization typos all feature registrations are done with
-        key.lower() (see CameraTemplate.registerFeature()). This means that
-        feature lookups are also done with key.lower(). This has to be
-        considered if this function is overloaded.
-        """
-        if len(args) == 1:
-            if isinstance(args[0], dict):
-                settings = args[0]
-                for key in settings.keys():
-                    self.setFeature(key=key, value=settings[key])
-            elif isinstance(args[0], (list, tuple)):
-                # assume the settings are ordered as ['key', value]
-                for (key, value) in grouper(args[0], 2):
-                    self.setFeature(key=key, value=value)
-            elif isinstance(args[0], str):
-                # This might still be a single key with the value given as a
-                # kwarg. So check if a single kwarg with key 'value' exists
-                if len(kwargs) >= 1 and 'value' in kwargs.keys():
-                    self.setFeature(key=args[0], value=kwargs['value'])
-                else:
-                    # assume this is the path to a settings file we should
-                    # parse
-                    # TODO: implement file parsing
-                    pass
-        elif len(args) >= 2:
-            # assume the arguments were passed in order ['key', 'value']
-            # there may be multiple key value pairs so try to parse all of them
-            for (key, value) in grouper(args, 2):
-                self.setFeature(key=key, value=value)
-
-        if all(k in kwargs.keys() for k in ('key', 'value')):
-            try:
-                self.logger.debug("Setting key: {key} with value: {value}"
-                                  "".format(key=kwargs['key'],
-                                            value=kwargs['value']))
-                self.features[kwargs['key'].lower()](kwargs['value'])
-            except KeyError:
-                raise NotImplementedError('The desired key \'{key}\' has no '
-                                          'registered implementation. Desired '
-                                          'value: \'{value}\''
-                                          ''.format(key=kwargs['key'],
-                                                    value=kwargs['value']))
-            except Exception as e:
-                self.logger.exception('Failed to set \'{key}\' to '
-                                      '\'{value}\', {e}'
-                                      ''.format(key=kwargs['key'],
-                                                value=kwargs['value'],
-                                                e=e))
-
-    def getFeature(self, key):
-        """
-        Return the current value of 'key'
-
-        Parameters
-        ----------
-        key : str
-            String describing the feature value to return
-        """
-        raise NotImplementedError
-
-    def getFeatures(self):
-        """
-        Returns the dictionary of registered setFunction implementations
-        """
-        return self.features
 
     def setExposureMicrons(self, microns=None):
         """
