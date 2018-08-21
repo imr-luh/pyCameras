@@ -145,16 +145,19 @@ class Camera(CameraTemplate):
         """
         Close the connection to the device
         """
-        try:
-            self.logger.debug('Closing camera device: {device}'
-                              ''.format(device=self.device))
-            self.device.close()
-            del self.device
-            self.device = None
+        if self.device is not None:
+            try:
+                self.logger.debug('Closing camera device: {device}'
+                                  ''.format(device=self.device))
+                self.device.close()
+                del self.device
+                self.device = None
 
-        except Exception as e:
-            self.logger.exception('Failed to close the camera device: '
-                                  '{e}'.format(e=e))
+            except Exception as e:
+                self.logger.exception('Failed to close the camera device: '
+                                      '{e}'.format(e=e))
+        else:
+            self.logger.info('No Device present.')
 
     def getImage(self, *args, **kwargs):
         """
