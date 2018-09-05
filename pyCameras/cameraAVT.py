@@ -555,26 +555,6 @@ class Camera(CameraTemplate):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
-    def getFeature(self, key):
-        """
-        Get a camera setting
-
-        Parameters
-        ----------
-        key : string
-            keystring of camera feature
-
-        Returns
-        -------
-        value : str, int, float, object
-            Value of the requested feature
-        """
-        try:
-            value = self.features[key]()
-        except Exception:
-            value = '<NOT READABLE>'
-        return value
-
     def setExposureMicrons(self, microns=None):
         """
         Set the exposure time to the given value in microseconds or read the
