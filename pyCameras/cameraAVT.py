@@ -174,12 +174,17 @@ class Camera(CameraTemplate):
         self.registerFeature('numCams', self._setNumberCams)
         self.registerFeature('numberCams', self._setNumberCams)
         self.registerFeature('numberOfCameras', self._setNumberCams)
+        # Function to set pixel format
+        self.registerFeature('pixelFormat', self.setFormat)
+        self.registerFeature('pixelType', self.setFormat)
+        self.registerFeature('format', self.setFormat)
 
         self.framelist = []
         self.imgData = []
         self._clearQueueAndFrames()
 
-        # TODO: Adjust Datatype depending on PixelFormat?
+        # Init data type LUT for each PixelFormat
+        self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
 
     def __del__(self):
         # self._cleanUp()
@@ -311,7 +316,11 @@ class Camera(CameraTemplate):
             frame created by device.getFrame()
         """
         frame.waitFrameCapture(1000)
-        singleImg = frame.getImage()
+        # Get image data ...
+        singleImg = np.ndarray(buffer=frame.getBufferByteData(),
+                               dtype=self.imageFormatLUT[self.device.PixelFormat],
+                               shape=(frame.height,
+                                      frame.width))
 
         self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
@@ -400,10 +409,9 @@ class Camera(CameraTemplate):
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
-                             dtype=np.uint8,
+                             dtype=self.imageFormatLUT[self.device.PixelFormat],
                              shape=(frame.height,
-                                    frame.width,
-                                    1))
+                                    frame.width))
 
         # Do cleanup
         self._cleanUp()
@@ -525,10 +533,9 @@ class Camera(CameraTemplate):
             frame_data = frame.getBufferByteData()
             if success:
                 live_img = np.ndarray(buffer=frame_data,
-                                      dtype=np.uint8,
+                                      dtype=self.imageFormatLUT[self.device.PixelFormat],
                                       shape=(frame.height,
-                                             frame.width,
-                                             1))
+                                             frame.width))
 
                 cv.imshow("IMG", live_img)
             framecount += 1
@@ -633,7 +640,8 @@ class Camera(CameraTemplate):
         ----------
         fmt : str
             String describing the desired image format (e.g. "mono8"), or None
-            to read the current image format
+            to read the current image format. Check camera technical manual for available formats,
+            may differ from model to model.
 
         Returns
         -------
