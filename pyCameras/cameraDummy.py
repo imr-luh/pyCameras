@@ -52,6 +52,12 @@ class Camera(CameraTemplate):
         if isinstance(self._imageDir, str):
             self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
 
+        # Variables to mimic behaviour of real cameras
+        self._trigger = None
+        self._format = None
+        self._gain = None
+        self._exposure = None
+
     @staticmethod
     def listDevices():
         return [Camera]
@@ -78,11 +84,12 @@ class Camera(CameraTemplate):
         self._expectedImages = 0
         return [self.getImage() for _ in range(N)]
 
-    def getFeature(self, key):
-        return 0
-
     def setExposureMicrons(self, microns=None):
-        return 0
+        if microns is None:
+            return self._exposure
+        self._exposure = microns
+
+        return self._exposure
 
     def setResolution(self, resolution=None):
         if resolution is not None:
@@ -90,13 +97,25 @@ class Camera(CameraTemplate):
         return self._resolution
 
     def setGain(self, gain=None):
-        return 0
+        if gain is None:
+            return self._gain
+        self._gain = gain
+
+        return self._gain
 
     def setFormat(self, fmt=None):
-        return 0
+        if fmt is None:
+            return self._format
+        self._format = fmt
+
+        return self._format
 
     def setTriggerMode(self, mode=None):
-        return 0
+        if mode is None:
+            return self._trigger
+        self._trigger = mode
+
+        return self._trigger
 
     @staticmethod
     def openController():
