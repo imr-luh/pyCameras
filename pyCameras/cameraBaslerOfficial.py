@@ -113,6 +113,7 @@ class Camera(CameraTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self._expected_triggered_images = 0
+        self._timeout = 200
         self.registerFeatures()
         self.openDevice()
 
@@ -179,7 +180,7 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
-        return self.device.GrabOne(1000).Array
+        return self.device.GrabOne(self._timeout).Array
 
     def getFeature(self, key):
         """
