@@ -27,15 +27,20 @@ class Controller(ControllerTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting Basler Camera Controller')
+        self._factory = pylon.TlFactory.GetInstance()
         self.device_handles = []
+
+        # because the defined __repr__ method for the pylon.DeviceInfo class is
+        # not very human readable we overwrite it here with the supplied
+        # GetFriendlyName method
+        pylon.DeviceInfo.__repr__ = lambda x: x.GetFriendlyName()
 
     def updateDeviceHandles(self):
         """
         Refresh the list of available devices
         """
         self.logger.debug('Searching for Basler camera devices')
-        tlFactory = pylon.TlFactory.GetInstance()
-        self.device_handles = tlFactory.EnumerateDevices()
+        self.device_handles = list(self._factory.EnumerateDevices())
         self.logger.debug('Found {num} Basler camera devices: {devices}'
                           ''.format(num=len(self.device_handles),
                                     devices=self.device_handles))
@@ -91,13 +96,19 @@ class Camera(CameraTemplate):
                                 device_handle)[0]
             # List available cameras and try to find one with matching serial
             for device in self.listDevices():
-                if device.serial_number == serial:
+                if device.GetSerialNumber() == serial:
                     self.device_handle = device
         else:
             raise TypeError('device_handle should be of type '
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
         super(Camera, self).__init__(self.device_handle)
+
+        # Similar to the __repr__ issue in the controller class we need to make
+        # the pylon swig interface use a nice human readable string for
+        # __repr__ calls by patching the parent class
+        pylon.InstantCamera.__repr__ = lambda x: x.GetDeviceInfo().GetFriendlyName()
+
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
@@ -168,7 +179,7 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
-        return self.device.GrabOne(100).Array
+        return self.device.GrabOne(1000).Array
 
     def getFeature(self, key):
         """
