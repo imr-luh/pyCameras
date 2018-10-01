@@ -222,8 +222,8 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug('Setting <ExposureTimeRaw> to {microns}'
                               ''.format(microns=microns))
-            self.device.properties['ExposureTimeRaw'] = microns
-        return self.device.properties['ExposureTimeRaw']
+            self.device.ExposureTimeRaw.SetValue(microns)
+        return self.device.ExposureTimeRaw.GetValue()
 
     def setGain(self, gain=None):
         """
@@ -244,8 +244,8 @@ class Camera(CameraTemplate):
         if gain is not None:
             self.logger.debug('Setting <GainRaw> to {gain}'
                               ''.format(gain=gain))
-            self.device.properties['GainRaw'] = gain
-        return self.device.properties['GainRaw']
+            self.device.GainRaw.SetValue(gain)
+        return self.device.GainRaw.GetValue()
 
     def setFormat(self, fmt=None):
         """
@@ -294,7 +294,7 @@ class Camera(CameraTemplate):
         width : int
             Width of the returned images in pixel
         """
-        return self.device.properties['Width']
+        return self.device.Width()
 
     def getImageHeight(self):
         """
@@ -305,7 +305,7 @@ class Camera(CameraTemplate):
         height : int
             Height of the returned images in pixel
         """
-        return self.device.properties['Height']
+        return self.device.Height()
 
     def setResolution(self, resolution=None):
         self.logger.warning('setResolution currently only returns current '
