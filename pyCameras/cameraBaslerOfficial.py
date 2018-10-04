@@ -297,7 +297,7 @@ class Camera(CameraTemplate):
         width : int
             Width of the returned images in pixel
         """
-        return self.device.Width()
+        return self.device.Width.Value
 
     def getImageHeight(self):
         """
@@ -308,7 +308,7 @@ class Camera(CameraTemplate):
         height : int
             Height of the returned images in pixel
         """
-        return self.device.Height()
+        return self.device.Height.Value
 
     def setResolution(self, resolution=None):
         self.logger.warning('setResolution currently only returns current '
