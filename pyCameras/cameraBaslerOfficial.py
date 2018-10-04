@@ -383,6 +383,7 @@ class Camera(CameraTemplate):
                 self.device.TriggerSelector = 'FrameStart'
             elif mode.lower() == 'out':
                 # Not supported by Basler cameras (?)
+                # TODO: looks like Line2 and Line 3 can be configured as output
                 raise NotImplementedError('Sending triggers is not supported '
                                           'by Basler cameras. Please use a '
                                           'different device to trigger the '
