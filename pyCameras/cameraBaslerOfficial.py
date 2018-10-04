@@ -374,13 +374,13 @@ class Camera(CameraTemplate):
             The trigger mode after applying the passed value
         """
         if mode is None:
-            return self.device.properties['TriggerMode']
+            return self.device.TriggerMode.Value
         elif isinstance(mode, str):
-            self.logger.debug('BASLER: setting trigger mode {}'.format(mode))
+            self.logger.debug('Setting trigger mode {}'.format(mode))
             if mode.lower() == 'in':
-                self.device.properties['TriggerMode'] = 'On'
-                self.device.properties['TriggerSource'] = 'Line1'
-                self.device.properties['TriggerSelector'] = 'FrameStart'
+                self.device.TriggerMode = 'On'
+                self.device.TriggerSource = 'Line1'
+                self.device.TriggerSelector = 'FrameStart'
             elif mode.lower() == 'out':
                 # Not supported by Basler cameras (?)
                 raise NotImplementedError('Sending triggers is not supported '
@@ -388,12 +388,12 @@ class Camera(CameraTemplate):
                                           'different device to trigger the '
                                           'camera')
             elif mode.lower() == 'off':
-                self.device.properties['TriggerMode'] = 'Off'
+                self.device.TriggerMode = 'Off'
             else:
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.properties['TriggerMode']
+            return self.device.TriggerMode.Value
         else:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
