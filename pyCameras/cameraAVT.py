@@ -34,6 +34,7 @@ class Controller(ControllerTemplate):
     """
     Camera controller for AVT cameras based on pymba
     """
+
     def __init__(self):
         """
         Camera controller for AVT camera devices. This implementation uses
@@ -118,6 +119,7 @@ class Camera(CameraTemplate):
     call openDevice() !!! This is done to set some settings to put the camera
     into freerun mode.
     """
+
     def __init__(self, device_handle, vimba=None):
         """
         Implementation of the AVT camera device
@@ -142,6 +144,7 @@ class Camera(CameraTemplate):
 
         self.device = self._vimba.getCamera(self._checkDeviceHandle(device_handle))
         self.device_handle = device_handle
+        self.camId = None
 
         self.modelName = self.device._info.modelName
         self.triggerModeSetting = 'off'
@@ -150,15 +153,38 @@ class Camera(CameraTemplate):
         self.openDevice()
         # time.sleep(0.2)
         self.device.TriggerMode = 'Off'
-        self.device.GevSCPSPacketSize = 1500    # Automatic setting not yet implemented in pymba (date: 11.12.17)
+
+        self.device.GevSCPSPacketSize = 1500  # Automatic setting not yet implemented in pymba (date: 11.12.17)
         # Influences framerate, necessary if network bandwidth is not big enough
+        # NOTE: Functions self._setMaxTransferRate, self._setTransferRate and self._setNumberCams may change this value
         # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
-        self.device.StreamBytesPerSecond = 115000000    # 100 Mb/sec (with GigE)
+        self.device.StreamBytesPerSecond = 115000000  # 100 Mb/sec (with GigE)
+
+        self.maxTransferRate = 115000000
+        self.numCams = 1
+        self.isSet = {'rate': False, 'numCams': False}
+
+        # Register AVT specific functions.
+        # Function to set maximum transfer rate depending on used network specifications
+        self.registerFeature('maxRate', self._setMaxTransferRate)
+        self.registerFeature('bandwidth', self._setMaxTransferRate)
+        self.registerFeature('maximumTransferRate', self._setMaxTransferRate)
+        self.registerFeature('transferRate', self._setTransferRate)
+        # Function to set number of cameras, may affect the available transfer rate per camera
+        self.registerFeature('numCams', self._setNumberCams)
+        self.registerFeature('numberCams', self._setNumberCams)
+        self.registerFeature('numberOfCameras', self._setNumberCams)
+        # Function to set pixel format
+        self.registerFeature('pixelFormat', self.setFormat)
+        self.registerFeature('pixelType', self.setFormat)
+        self.registerFeature('format', self.setFormat)
+
         self.framelist = []
         self.imgData = []
         self._clearQueueAndFrames()
 
-        # TODO: Adjust Datatype depending on PixelFormat?
+        # Init data type LUT for each PixelFormat
+        self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
 
     def __del__(self):
         # self._cleanUp()
@@ -193,12 +219,80 @@ class Camera(CameraTemplate):
 
         return candidates[0]
 
+    def _setMaxTransferRate(self, rate=None):
+        """
+        Sets the transfer rate by changing 'StreamBytesPerSecond'.
+        If passed None, will return actual rate set.
+
+        Parameters
+        ----------
+        rate: int
+            Maximum bandwidth available. Typical values:
+            - with GigE     : 115000000
+            - without GigE  : 10000000
+
+        Returns
+        -------
+        self.max_bandwidth: int
+            If passed None: returns set bandwidth
+        """
+        self.logger.debug("Setting max transfer rate for device {handle} to {rate}"
+                          "".format(handle=self.device_handle, rate=rate))
+        if rate is None:
+            return self.maxTransferRate
+        self.maxTransferRate = rate
+        self.isSet['rate'] = True
+
+        # Call function if number of cams was set
+        if self.isSet['numCams']:
+            self._setTransferRate()
+        else:
+            self.device.StreamBytesPerSecond = rate
+
+        return self.maxTransferRate
+
+    def _setNumberCams(self, num=None):
+        """
+        Sets the number of AVT cameras used (this will affect the maximum transfer rate for each camera).
+        If passed None, will return actual number of cameras set.
+
+        Parameters
+        ----------
+        num: int
+            Number of AVT cameras
+
+        Returns
+        -------
+        self.numCams: int
+            Number of AVT cameras set for this object
+        """
+        self.logger.debug("Setting number of cameras for device {handle} to {num}"
+                          "".format(handle=self.device_handle, num=num))
+        if num is None:
+            return self.numCams
+        self.numCams = num
+        self.isSet['numCams'] = True
+
+        if self.isSet['rate']:
+            self._setTransferRate()
+
+        return self.numCams
+
+    def _setTransferRate(self):
+        """
+        Takes maxTransferRate and numCams to compute a viable transfer rate for the device.
+        """
+        transfer_rate = int(self.maxTransferRate / self.numCams)
+        self.device.StreamBytesPerSecond = transfer_rate
+        self.logger.debug("Setting transfer rate for {device} to {rate}"
+                          "".format(device=self.device_handle, rate=transfer_rate))
+
     def _clearQueueAndFrames(self):
-        '''
+        """
         Does some cleanup jobs. Call after whenever you feel like there might be a buffer overflow.
         Calls:  - flushCaptureQueue()
                 - revokeAllFrames()
-        '''
+        """
         self.device.flushCaptureQueue()
         self.device.revokeAllFrames()
 
@@ -222,7 +316,11 @@ class Camera(CameraTemplate):
             frame created by device.getFrame()
         """
         frame.waitFrameCapture(1000)
-        singleImg = frame.getImage()
+        # Get image data ...
+        singleImg = np.ndarray(buffer=frame.getBufferByteData(),
+                               dtype=self.imageFormatLUT[self.device.PixelFormat],
+                               shape=(frame.height,
+                                      frame.width))
 
         self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
@@ -238,7 +336,7 @@ class Camera(CameraTemplate):
         camId : "unique" cam id
         """
         if self.camId is None:
-            mfr = b'AVT'     # mfr = manufacturer
+            mfr = b'AVT'  # mfr = manufacturer
             id = self.device._info.cameraIdString[-4:]
             camId = b'_'.join((mfr, id)).decode('utf-8')
 
@@ -311,10 +409,9 @@ class Camera(CameraTemplate):
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
-                             dtype=np.uint8,
+                             dtype=self.imageFormatLUT[self.device.PixelFormat],
                              shape=(frame.height,
-                                    frame.width,
-                                    1))
+                                    frame.width))
 
         # Do cleanup
         self._cleanUp()
@@ -436,10 +533,9 @@ class Camera(CameraTemplate):
             frame_data = frame.getBufferByteData()
             if success:
                 live_img = np.ndarray(buffer=frame_data,
-                                      dtype=np.uint8,
+                                      dtype=self.imageFormatLUT[self.device.PixelFormat],
                                       shape=(frame.height,
-                                             frame.width,
-                                             1))
+                                             frame.width))
 
                 cv.imshow("IMG", live_img)
             framecount += 1
@@ -465,26 +561,6 @@ class Camera(CameraTemplate):
         except Exception as e:
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
-
-    def getFeature(self, key):
-        """
-        Get a camera setting
-
-        Parameters
-        ----------
-        key : string
-            keystring of camera feature
-
-        Returns
-        -------
-        value : str, int, float, object
-            Value of the requested feature
-        """
-        try:
-            value = self.features[key]()
-        except Exception:
-            value = '<NOT READABLE>'
-        return value
 
     def setExposureMicrons(self, microns=None):
         """
@@ -564,7 +640,8 @@ class Camera(CameraTemplate):
         ----------
         fmt : str
             String describing the desired image format (e.g. "mono8"), or None
-            to read the current image format
+            to read the current image format. Check camera technical manual for available formats,
+            may differ from model to model.
 
         Returns
         -------
@@ -681,5 +758,3 @@ if __name__ == '__main__':
     cam_device.closeDevice()
 
     contr.closeController()
-
-
