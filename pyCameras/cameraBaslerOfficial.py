@@ -213,7 +213,7 @@ class Camera(CameraTemplate):
 
         Parameters
         ----------
-        microns : int
+        microns : float
             Desired exposure time in microseconds that should be set, or None
             to read the current exposure time
 
@@ -225,8 +225,8 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug('Setting <ExposureTimeRaw> to {microns}'
                               ''.format(microns=microns))
-            self.device.ExposureTimeRaw.SetValue(microns)
-        return self.device.ExposureTimeRaw.GetValue()
+            self.device.ExposureTimeAbs.SetValue(microns)
+        return self.device.ExposureTimeAbs.GetValue()
 
     def setGain(self, gain=None):
         """
