@@ -311,7 +311,9 @@ class Camera(CameraTemplate):
             frame created by device.getFrame()
         """
         frame.waitFrameCapture(1000)
-        singleImg = frame.getImage()
+        singleImg = np.ndarray(buffer=frame.getBufferByteData(),
+                               dtype=np.uint8,
+                               shape=(frame.height, frame.width))
 
         self.imgData.append(singleImg)
         frame.queueFrameCapture(self._frameCallback)
