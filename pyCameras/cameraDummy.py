@@ -57,16 +57,20 @@ class Camera(CameraTemplate):
         self._format = None
         self._gain = None
         self._exposure = None
+        self._isOpen = True
 
     @staticmethod
     def listDevices():
         return [Camera]
 
     def openDevice(self):
-        return 0
+        self._isOpen = True
 
     def closeDevice(self):
-        return 0
+        self._isOpen = False
+
+    def isOpen(self):
+        return self._isOpen
 
     def getImage(self, *args, **kwargs):
         try:
