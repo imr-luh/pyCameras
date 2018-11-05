@@ -210,6 +210,12 @@ class Camera(CameraTemplate):
         del self.device
         self.device = None
 
+    def isOpen(self):
+        if self.device is not None:
+            return self.device.isOpened()
+        else:
+            return False
+
     def getImage(self):
         ret, img = self.device.read()
         if ret is True:
