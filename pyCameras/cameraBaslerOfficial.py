@@ -172,6 +172,12 @@ class Camera(CameraTemplate):
         else:
             self.logger.info('No Device present.')
 
+    def isOpen(self):
+        if self.device is not None:
+            return self.device.IsOpen()
+        else:
+            return False
+
     def getImage(self, *args, **kwargs):
         """
         Get an image from the camera
