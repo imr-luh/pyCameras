@@ -159,6 +159,32 @@ class CameraTemplate(SettingsHandler):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def isOpen(self):
+        """
+        Check if the device for this instance is currently open and ready to
+        communicate
+
+        Returns
+        -------
+        bool
+            True if the camera connection is open, False if it is not
+        """
+        raise NotImplementedError
+
+    def isClosed(self):
+        """
+        Inverse of self.isOpen(). Checks if the device connection is currently
+        closed
+
+        Returns
+        -------
+        bool
+            True if the camera connection is closed, False if the connection is
+            opened
+        """
+        return not(self.isOpen())
+
+    @abc.abstractmethod
     def getImage(self, *args, **kwargs):
         """
         Return a numpy array containing an image
