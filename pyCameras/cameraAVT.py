@@ -379,6 +379,23 @@ class Camera(CameraTemplate):
             self.logger.exception('Failed to close the camera device: '
                                   '{e}'.format(e=e))
 
+    def isOpen(self):
+        """
+        Check if the device for this instance is currently open and ready to
+        communicate
+
+        Returns
+        -------
+        bool
+            True if the camera connection is open, False if it is not
+        """
+        # AVT cameras do not have any isOpen-function by itself.
+        # Assuming that if there is a device given in self.device, device is opened.
+        if self.device is not None:
+            return True
+        else:
+            return False
+
     def getImage(self, *args, **kwargs):
         """
         Get an image from the camera device
