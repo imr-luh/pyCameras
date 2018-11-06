@@ -6,18 +6,9 @@ __status__ = "Development"
 import logging
 import re
 
-import pypylon
+import pypylon.pylon as pylon
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
-
-import warnings
-
-warnings.simplefilter("always")
-warnings.warn("The pypylon library used in this basler "
-              "implementation is deprecated in favor of the new "
-              "library under the same name provided by basler. "
-              "Please see https://github.com/basler/pypylon",
-              DeprecationWarning)
 
 LOGGING_LEVEL = None
 
@@ -36,14 +27,20 @@ class Controller(ControllerTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting Basler Camera Controller')
+        self._factory = pylon.TlFactory.GetInstance()
         self.device_handles = []
+
+        # because the defined __repr__ method for the pylon.DeviceInfo class is
+        # not very human readable we overwrite it here with the supplied
+        # GetFriendlyName method
+        pylon.DeviceInfo.__repr__ = lambda x: x.GetFriendlyName()
 
     def updateDeviceHandles(self):
         """
         Refresh the list of available devices
         """
         self.logger.debug('Searching for Basler camera devices')
-        self.device_handles = pypylon.factory.find_devices()
+        self.device_handles = list(self._factory.EnumerateDevices())
         self.logger.debug('Found {num} Basler camera devices: {devices}'
                           ''.format(num=len(self.device_handles),
                                     devices=self.device_handles))
@@ -91,7 +88,7 @@ class Camera(CameraTemplate):
         device_handle : object
             Unique camera device handle to identify the camera
         """
-        if isinstance(device_handle, pypylon.cython.factory.DeviceInfo):
+        if isinstance(device_handle, pylon.DeviceInfo):
             self.device_handle = device_handle
         elif isinstance(device_handle, str):
             # Assume the string contains the 8 digit serial number of the cam
@@ -99,17 +96,24 @@ class Camera(CameraTemplate):
                                 device_handle)[0]
             # List available cameras and try to find one with matching serial
             for device in self.listDevices():
-                if device.serial_number == serial:
+                if device.GetSerialNumber() == serial:
                     self.device_handle = device
         else:
             raise TypeError('device_handle should be of type '
                             'pypylon.cython.factory.DeviceInfo or subclassed '
                             'from it')
         super(Camera, self).__init__(self.device_handle)
+
+        # Similar to the __repr__ issue in the controller class we need to make
+        # the pylon swig interface use a nice human readable string for
+        # __repr__ calls by patching the parent class
+        pylon.InstantCamera.__repr__ = lambda x: x.GetDeviceInfo().GetFriendlyName()
+
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self._expected_triggered_images = 0
+        self._timeout = 200
         self.registerFeatures()
         self.openDevice()
 
@@ -142,8 +146,8 @@ class Camera(CameraTemplate):
         object in self.device
         """
         try:
-            self.device = pypylon.factory.create_device(self.device_handle)
-            self.device.open()
+            self.device = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateDevice(self.device_handle))
+            self.device.Open()
             self.logger.debug('Opened camera device: {device}'
                               ''.format(device=self.device))
         except Exception as e:
@@ -158,7 +162,7 @@ class Camera(CameraTemplate):
             try:
                 self.logger.debug('Closing camera device: {device}'
                                   ''.format(device=self.device))
-                self.device.close()
+                self.device.Close()
                 del self.device
                 self.device = None
 
@@ -167,6 +171,12 @@ class Camera(CameraTemplate):
                                       '{e}'.format(e=e))
         else:
             self.logger.info('No Device present.')
+
+    def isOpen(self):
+        if self.device is not None:
+            return self.device.IsOpen()
+        else:
+            return False
 
     def getImage(self, *args, **kwargs):
         """
@@ -179,7 +189,7 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
-        return self.device.grab_image()
+        return self.device.GrabOne(self._timeout).Array
 
     def getFeature(self, key):
         """
@@ -209,7 +219,7 @@ class Camera(CameraTemplate):
 
         Parameters
         ----------
-        microns : int
+        microns : float
             Desired exposure time in microseconds that should be set, or None
             to read the current exposure time
 
@@ -221,8 +231,8 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug('Setting <ExposureTimeRaw> to {microns}'
                               ''.format(microns=microns))
-            self.device.properties['ExposureTimeRaw'] = microns
-        return self.device.properties['ExposureTimeRaw']
+            self.device.ExposureTimeAbs.SetValue(microns)
+        return self.device.ExposureTimeAbs.GetValue()
 
     def setGain(self, gain=None):
         """
@@ -243,8 +253,8 @@ class Camera(CameraTemplate):
         if gain is not None:
             self.logger.debug('Setting <GainRaw> to {gain}'
                               ''.format(gain=gain))
-            self.device.properties['GainRaw'] = gain
-        return self.device.properties['GainRaw']
+            self.device.GainRaw.SetValue(gain)
+        return self.device.GainRaw.GetValue()
 
     def setFormat(self, fmt=None):
         """
@@ -293,7 +303,7 @@ class Camera(CameraTemplate):
         width : int
             Width of the returned images in pixel
         """
-        return self.device.properties['Width']
+        return self.device.Width.Value
 
     def getImageHeight(self):
         """
@@ -304,7 +314,7 @@ class Camera(CameraTemplate):
         height : int
             Height of the returned images in pixel
         """
-        return self.device.properties['Height']
+        return self.device.Height.Value
 
     def setResolution(self, resolution=None):
         self.logger.warning('setResolution currently only returns current '
@@ -370,26 +380,27 @@ class Camera(CameraTemplate):
             The trigger mode after applying the passed value
         """
         if mode is None:
-            return self.device.properties['TriggerMode']
+            return self.device.TriggerMode.Value
         elif isinstance(mode, str):
-            self.logger.debug('BASLER: setting trigger mode {}'.format(mode))
+            self.logger.debug('Setting trigger mode {}'.format(mode))
             if mode.lower() == 'in':
-                self.device.properties['TriggerMode'] = 'On'
-                self.device.properties['TriggerSource'] = 'Line1'
-                self.device.properties['TriggerSelector'] = 'FrameStart'
+                self.device.TriggerMode = 'On'
+                self.device.TriggerSource = 'Line1'
+                self.device.TriggerSelector = 'FrameStart'
             elif mode.lower() == 'out':
                 # Not supported by Basler cameras (?)
+                # TODO: looks like Line2 and Line 3 can be configured as output
                 raise NotImplementedError('Sending triggers is not supported '
                                           'by Basler cameras. Please use a '
                                           'different device to trigger the '
                                           'camera')
             elif mode.lower() == 'off':
-                self.device.properties['TriggerMode'] = 'Off'
+                self.device.TriggerMode = 'Off'
             else:
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.properties['TriggerMode']
+            return self.device.TriggerMode.Value
         else:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
@@ -416,6 +427,7 @@ def main(arguments=''):
     devices = Camera.listDevices()
     cam = Camera(devices[0])
     print(cam)
+    print('AAA'*5)
     print(cam.getImage())
     del cam
 
