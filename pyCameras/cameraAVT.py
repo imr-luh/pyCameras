@@ -375,6 +375,8 @@ class Camera(CameraTemplate):
         try:
             self.logger.debug('Closing camera device')
             self.device.closeCamera()
+            del self.device
+            self.device = None
         except Exception as e:
             self.logger.exception('Failed to close the camera device: '
                                   '{e}'.format(e=e))
