@@ -2,20 +2,18 @@
 """
 Implementation of the template for XIMEA XiB cameras
 """
-__author__ = "Ruediger Beermann, Niklas Kroeger"
+__author__ = "Jochen Schlobohm"
 __credits__ = ["Ruediger Beermann", "Niklas Kroeger"]
-__maintainer__ = "Niklas Kroeger"
-__email__ = "niklas.kroeger@imr.uni-hannover.de"
+__maintainer__ = "not assigned"
+__email__ = ""
 __status__ = "Development"
 
 import abc
 import logging
 import numpy as np
-#from imrpy.misc.iterators import grouper
-
 
 from pyXimea import xiapi, xidefs
-from cameraTemplate import CameraTemplate
+from pyCameras.cameraTemplate import CameraTemplate
 
 # class CameraControllerTemplate(object):
 #     """
@@ -82,16 +80,15 @@ class CameraXimeaXIB(CameraTemplate):
             Some handle that identifies the camera and is used to open the
             device connection
         """
+        super(CameraXimeaXIB, self).__init__(device_handle)
+
         self.logger = logging.getLogger(__name__)
         self.device_handle = device_handle  # Use this to identify and open the
                                             # device
         self.device = xiapi.Camera()  # Use this variable to store the device itself
-        self.features = {}
-        self.registerSharedFeatures()
         self.triggerMode = "off"
 
     @staticmethod
-    @abc.abstractmethod
     def listDevices():
         """
         List all available camera devices correspponding to the class type
@@ -108,7 +105,6 @@ class CameraXimeaXIB(CameraTemplate):
             cam.close_device()
         return result
 
-    @abc.abstractmethod
     def openDevice(self):
         """
         Open the device by using self.device_handle and store the device in
@@ -116,14 +112,24 @@ class CameraXimeaXIB(CameraTemplate):
         """
         self.device.open_device_by_SN(self.device_handle)
 
-    @abc.abstractmethod
     def closeDevice(self):
         """
         Close the connection to the device and reset self.device to None.
         """
         self.device.close_device()
 
-    @abc.abstractmethod
+    def isOpen(self):
+        """
+        Check if the device for this instance is currently open and ready to
+        communicate
+
+        Returns
+        -------
+        bool
+            True if the camera connection is open, False if it is not
+        """
+        return self.device.CAM_OPEN
+
     def getImage(self, *args, **kwargs):
         """
         Return a numpy array containing an image
@@ -176,8 +182,6 @@ class CameraXimeaXIB(CameraTemplate):
                 resultNp.append(self.getNumpyData(img))
         finally:
             self.device.stop_acquisition()
-        
-        #raise NotImplementedError
 
     def grabStart(self):
         """
@@ -217,66 +221,6 @@ class CameraXimeaXIB(CameraTemplate):
 
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
-
-    def setFeature(self, *args, **kwargs):
-        """
-        Update a camera setting (described by 'key') to a new value
-
-        This function expects features in the form of 'key' - 'value'. The key
-        describes what feature should be changed and the value parameter is
-        passed to the corresponding function implementation. The key and its
-        corresponding function have to be registered in the self.features
-        dictionary. To do this use self.registerFeature.
-
-        Several different ways of passing 'key' - 'value' pairs are allowed.
-
-        For the simplest usecase of updating one setting simply pass 'key' and
-        'value' in the correct order or as keyword arguments.
-        If mutliple settings should be updated with a single call a number of
-        
-        Alternatively a dict can be passed where the keys of the dict matches the
-        feature keys and the associated value corresponds to the desired value
-        e.g.
-        {'resolutionX': 640, 'resolutionY': 480}
-
-
-        Parameters
-        ----------
-        key : str
-            key describing the function as registered via self.registerFeature
-
-        value : object
-            Parameters shat should be passed on to the corresponding function
-            implementation
-        """
-        if "key" in kwargs.keys() and "value" in kwargs.keys():
-            self.device.set_param(kwargs["key"], kwargs["value"])
-
-    def getFeature(self, key):
-        """
-        Return the current value of 'key'
-
-        Parameters
-        ----------
-        key : str
-            String describing the feature value to return
-        """
-        raise NotImplementedError
-        # example implementation:
-        # try:
-        #     self.logger.debug('Updating setting {key} to {value}'
-        #                       ''.format(key=item.key,
-        #                                 value=newValue))
-        #     self.properties[item.key] = eval(newValue)
-        #     self.updatePropertyView.emit(item, newValue)
-        # except Exception as e:
-        #     self.logger.exception(str(e))
-
-    def getFeatures(self):
-        """
-        Returns the dictionary of registered setFunction implementations
-        """
-        return self.features
 
     def setExposureMicrons(self, microns=None):
         """
@@ -334,8 +278,6 @@ class CameraXimeaXIB(CameraTemplate):
         if gain is None:
             return self.device.get_gain()
         self.device.set_gain(gain)
-
-
 
     def setFormat(self, format=None):
         """
@@ -395,11 +337,11 @@ class CameraXimeaXIB(CameraTemplate):
             self.device.set_gpi_mode("XI_GPI_OFF")
             self.device.set_trigger_source("XI_TRG_OFF")
         self.triggerMode = mode
-        
 
     def __del__(self):
         if self.device is not None:
             self.closeDevice()
+
 
 if __name__ == "__main__":
     from time import time
