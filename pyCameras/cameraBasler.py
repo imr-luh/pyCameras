@@ -10,6 +10,15 @@ import pypylon
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
+import warnings
+
+warnings.simplefilter("always")
+warnings.warn("The pypylon library used in this basler "
+              "implementation is deprecated in favor of the new "
+              "library under the same name provided by basler. "
+              "Please see https://github.com/basler/pypylon",
+              DeprecationWarning)
+
 LOGGING_LEVEL = None
 
 
