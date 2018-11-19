@@ -81,7 +81,8 @@ class Camera(CameraTemplate):
     """
     def __init__(self, device_handle):
         """
-        Implementation of the basle camera device
+        Implementation of the basler camera device. This implementation uses the
+        pypylon wrapper provided by basler.
 
         Parameters
         ----------
