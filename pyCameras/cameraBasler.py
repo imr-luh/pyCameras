@@ -123,11 +123,11 @@ class Camera(CameraTemplate):
         Function to hold all implemented feature registrations
         """
         self.logger.debug('Registering implemented camera specific features')
-        self.registerFeature('TriggerSource', self.setTriggerSource)
+        self.registerFeature('TriggerSource', self._setTriggerSource)
         self.registerFeature('AcquisitionFrameRateAbs',
-                             self.getAcquisitionFrameRateAbs)
-        self.registerFeature('ImageWidth', self.getImageWidth)
-        self.registerFeature('ImageHeight', self.getImageHeight)
+                             self._getAcquisitionFrameRateAbs)
+        self.registerFeature('ImageWidth', self._getImageWidth)
+        self.registerFeature('ImageHeight', self._getImageHeight)
 
     @staticmethod
     def listDevices():
@@ -259,7 +259,7 @@ class Camera(CameraTemplate):
                 self.logger.exception(e)
         return self.device.properties['PixelFormat']
 
-    def setTriggerSource(self, source):
+    def _setTriggerSource(self, source):
         """
         TODO
         """
@@ -267,14 +267,14 @@ class Camera(CameraTemplate):
         self.logger.debug('BASLER: setting trigger source to {}'
                           ''.format(source))
 
-    def getAcquisitionFrameRateAbs(self):
+    def _getAcquisitionFrameRateAbs(self):
         """
         TODO
         """
         # TODO
         return 25
 
-    def getImageWidth(self):
+    def _getImageWidth(self):
         """
         Return the width of the recorded images
 
@@ -285,7 +285,7 @@ class Camera(CameraTemplate):
         """
         return self.device.Width.Value
 
-    def getImageHeight(self):
+    def _getImageHeight(self):
         """
         Return the height of the recorded images
 
@@ -299,7 +299,7 @@ class Camera(CameraTemplate):
     def setResolution(self, resolution=None):
         self.logger.warning('setResolution currently only returns current '
                             'resolution.')
-        return (self.getImageWidth(), self.getImageHeight())
+        return (self._getImageWidth(), self._getImageHeight())
 
     def grabStart(self):
         self.logger.error('grabStart not yet implemented for {cam}'
