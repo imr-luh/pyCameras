@@ -359,9 +359,7 @@ class Camera(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
-        if mode is None:
-            return self.device.TriggerMode.Value
-        elif isinstance(mode, str):
+        if isinstance(mode, str):
             self.logger.debug('Setting trigger mode {}'.format(mode))
             if mode.lower() == 'in':
                 self.device.TriggerMode = 'On'
@@ -380,10 +378,12 @@ class Camera(CameraTemplate):
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.TriggerMode.Value
-        else:
+        elif mode is not None:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
+
+        mode = self.device.TriggerMode.Value
+        return 'in' if mode.lower() == 'on' else 'off'
 
     def __del__(self):
         self.closeDevice()
