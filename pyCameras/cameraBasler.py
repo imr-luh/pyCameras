@@ -192,27 +192,6 @@ class Camera(CameraTemplate):
         """
         return self.device.GrabOne(self._timeout).Array
 
-    def getFeature(self, key):
-        """
-        Get the current value for the feature defined by key
-
-        Parameters
-        ----------
-        key : str
-            String defining the feature
-
-        Returns
-        -------
-        value : str, int, float, object
-            Value of the desired feature, '<NOT READABLE>' if the value could
-            not be read
-        """
-        try:
-            value = self.features[key]()
-        except Exception:
-            value = '<NOT READABLE>'
-        return value
-
     def setExposureMicrons(self, microns=None):
         """
         Set the exposure time to the given value in microseconds or read the
