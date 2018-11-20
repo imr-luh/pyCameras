@@ -97,7 +97,8 @@ class Camera(CameraTemplate):
 
     def __init__(self, device_handle, applet='Acq_FullAreaGray8'):
         """
-        Implementation of the microEnable4-VD4 framegrabber
+        Implementation of the microEnable4-VD4 framegrabber.
+        Launches the camera in freerun mode (triggerMode 'off').
 
         Parameters
         ----------
@@ -144,6 +145,8 @@ class Camera(CameraTemplate):
                                  self.device_handle)
         s.Fg_setParameterWithInt(self.device, s.FG_TRIGGER_LEGACY_MODE,
                                  s.FG_ON, self.device_handle)
+        self.setTriggerMode('off')
+
         self._width = \
             s.Fg_getParameterWithInt(self.device, s.FG_WIDTH,
                                      self.device_handle)[1]
@@ -165,7 +168,7 @@ class Camera(CameraTemplate):
         """
         s.Fg_FreeMemEx(self.device, self.free_run_buffer)
         if self.buffer_handle is not None:
-            s.Fg_FreeMemEx(self.device_handle, self.buffer_handle)
+            s.Fg_FreeMemEx(self.device, self.buffer_handle)
         s.clSerialClose(self.clser_ref[1])
         self.closeDevice()
 
@@ -229,9 +232,10 @@ class Camera(CameraTemplate):
 
     def _freeLiveBuffer(self):
         """
-        Frees allocated memory of self.free_run_buffer.
+        Frees allocated memory of self.free_run_buffer. Sets handle to None.
         """
         s.Fg_FreeMemEx(self.device, self.free_run_buffer)
+        self.free_run_buffer = None
 
     def _freeImageBuffer(self):
         """
@@ -257,7 +261,7 @@ class Camera(CameraTemplate):
         """
         err, retval = s.Fg_getParameterWithInt(self.device, parameter,
                                                self.device_handle)
-        if err != 0:
+        if err != s.FG_OK:
             pass
         # TODO: Finish and exchange
 
@@ -285,6 +289,8 @@ class Camera(CameraTemplate):
                 raise TimeoutError(
                     "Max iterations reached while waiting to set parameter!")
             iterations += 1
+        # Sleep to fully apply setting... there have been timing issues...
+        time.sleep(.1)
 
     def _clSerialWrite(self, command, serial_port=0):
         import time
@@ -378,9 +384,9 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
+        # TODO: Old image gets returned when calling without input trigger
         # while s.Fg_getStatusEx(self.device, s.BUFFER_STATUS, 0, self.device_handle, self.free_run_buffer) == 1:
         # 	print (s.Fg_getStatusEx(self.device, s.BUFFER_STATUS, 0, self.device_handle, self.free_run_buffer))
-        # time.sleep(0.1)
 
         s.Fg_AcquireEx(self.device, self.device_handle, s.GRAB_INFINITE,
                        s.ACQ_STANDARD, self.free_run_buffer)
@@ -442,27 +448,27 @@ class Camera(CameraTemplate):
                        self._pics_to_be_recorded, s.ACQ_STANDARD,
                        self.buffer_handle)
 
+        iterations = 0
         while s.Fg_getStatusEx(self.device, s.NUMBER_OF_GRABBED_IMAGES, 0,
                                self.device_handle,
                                self.buffer_handle) != self._pics_to_be_recorded:
-            pass
+            if iterations > MAX_ITER:
+                raise TimeoutError('Maximum number of iterations reached. '
+                                   'Missing a trigger signal?')
+            iterations += 1
 
         s.Fg_stopAcquireEx(self.device, self.device_handle, self.buffer_handle,
                            s.STOP_ASYNC)
 
         for img_no in range(self._pics_to_be_recorded):
-            # print('current img_no:', img_no)
-            # img_buff_no = s.Fg_getImageEx(self.device, s.SEL_NUMBER, img_no+1, self.device_handle, 10000, self.buffer_handle)
-            # print('img num from getImage:', img_buff_no)
             img = s.Fg_getImagePtrEx(self.device, img_no + 1,
                                      self.device_handle, self.buffer_handle)
-            # print('Image pointer:', img)
             self.img_list.append(
                 s.getArrayFrom(img, self._width, self._height).copy())
-        # print('Got image number:', img_no+1)
 
-        # s.Fg_stopAcquireEx(self.device, self.device_handle, self.buffer_handle, s.STOP_ASYNC)
-        s.Fg_FreeMemEx(self.device, self.buffer_handle)
+        # Free buffer and set handle to None
+        self._freeImageBuffer()
+
         self._pics_to_be_recorded = None
 
         return self.img_list
@@ -477,6 +483,7 @@ class Camera(CameraTemplate):
         self.grabStop()
         """
         # Register apc control and callback function (see below this class)
+        # Used to control asynchronous image acquisition
         apcCtrl = s.FgApcControl(5, s.FG_APC_DEFAULTS)
         self.apc_data = _MyApcData(self.device, self.device_handle,
                                    self.free_run_buffer,
@@ -504,11 +511,14 @@ class Camera(CameraTemplate):
         --------
         self.grabStart()
         """
+        # Unregister apc handler
         s.Fg_registerApcHandler(self.device, self.device_handle, None,
                                 s.FG_APC_CONTROL_BASIC)
+
         s.Fg_stopAcquireEx(self.device, self.device_handle,
                            self.free_run_buffer,
                            s.STOP_ASYNC)
+        # Get image data from data class
         self.img_list = self.apc_data.img_list
 
         return self.img_list
@@ -530,6 +540,7 @@ class Camera(CameraTemplate):
         while True:
             cur_img_no = -1
             iterations = 0
+            # Only refresh if new image is acquired
             while last_img == cur_img_no or cur_img_no <= 0:
                 cur_img_no = s.Fg_getLastPicNumberEx(self.device,
                                                      self.device_handle,
@@ -539,7 +550,6 @@ class Camera(CameraTemplate):
                         "Max iterations reached while waiting for image! Missing a trigger signal?")
                 iterations += 1
             last_img = cur_img_no
-            # self.logger.debug("Actual image number is: {cur_img_no}".format(cur_img_no=cur_img_no))
 
             img_data = s.Fg_getImagePtrEx(self.device, cur_img_no,
                                           self.device_handle,
@@ -557,13 +567,6 @@ class Camera(CameraTemplate):
         s.Fg_stopAcquireEx(self.device, self.device_handle,
                            self.free_run_buffer, s.STOP_ASYNC)
         return
-
-    def _cleanUp(self, memHandle):
-        # TODO: Not needed I guess... leaving it here for the information for now
-        s.Fg_stopAcquireEx(self.device, self.device_handle, memHandle,
-                           s.STOP_SYNC)
-        err = s.Fg_FreeMemEx(self.device, memHandle)
-        return err
 
     def setExposureMicrons(self, microns=None):
         """
@@ -632,7 +635,7 @@ class Camera(CameraTemplate):
                 s.Fg_getParameterWithInt(self.device, s.FG_HEIGHT,
                                          self.device_handle)[1]
             # Prepare new live buffer with new resolution
-            self._prepareLiveBuffer()
+            self.free_run_buffer = self._prepareLiveBuffer()
 
         return self._width, self._height
 
@@ -653,6 +656,9 @@ class Camera(CameraTemplate):
             The gain value after applying the passed value
         """
         # TODO: Implement!!
+        # There is a gain setting from the frame grabber.
+        # Camera gain would be much more fitting here...
+        self._clSerialWrite()
         raise NotImplementedError('Implement me!!!')
 
     def setFormat(self, fmt=None):
@@ -795,24 +801,25 @@ if __name__ == '__main__':
     MicroEnable4.setExposureMicrons(50000)
     MicroEnable4.setTriggerMode('in')
 
-    MicroEnable4.grabStart()
-    time.sleep(2)
-    imgs = MicroEnable4.grabStop()
+    # MicroEnable4.grabStart()
+    # time.sleep(2)
+    # imgs = MicroEnable4.grabStop()
     # MicroEnable4.setTriggerMode('off')
     #
     # MicroEnable4.prepareRecording(5)
     #
     # imgs = MicroEnable4.record()
-    #
+    imgs = MicroEnable4.getImages(20)
+    print('num images:', len(imgs))
     for img in imgs:
         cv2.imshow('img_test', img)
         cv2.waitKey(0)
 
     # MicroEnable4._liveView()
 
-# img = MicroEnable4.getImage()
-# cv2.imshow("sd", img)
-# cv2.waitKey(0)
+    # img = MicroEnable4.getImage()
+    # cv2.imshow("sd", img)
+    # cv2.waitKey(0)
 
 # MicroEnable4._prepareBuffer(0)
 # MicroEnable4.setExposureMicrons(5000)
