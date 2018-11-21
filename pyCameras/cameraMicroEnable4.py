@@ -384,22 +384,17 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
-        # TODO: Old image gets returned when calling without input trigger
-        # while s.Fg_getStatusEx(self.device, s.BUFFER_STATUS, 0, self.device_handle, self.free_run_buffer) == 1:
-        # 	print (s.Fg_getStatusEx(self.device, s.BUFFER_STATUS, 0, self.device_handle, self.free_run_buffer))
 
         s.Fg_AcquireEx(self.device, self.device_handle, s.GRAB_INFINITE,
                        s.ACQ_STANDARD, self.free_run_buffer)
 
         cur_img_no = 0
         iterations = 0
-        # while s.Fg_getStatusEx(self.device, s.NUMBER_OF_GRABBED_IMAGES, 0, self.device_handle, self.free_run_buffer) != 1:
-        # 	pass
+
         while cur_img_no == 0:
             cur_img_no = s.Fg_getLastPicNumberEx(self.device,
                                                  self.device_handle,
                                                  self.free_run_buffer)
-            # print(cur_img_no)
             if iterations > MAX_ITER:
                 raise TimeoutError(
                     "Max iterations reached while waiting for image! Missing a trigger signal?")
