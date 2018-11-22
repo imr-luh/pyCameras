@@ -94,7 +94,6 @@ class Camera(CameraTemplate):
     microEnable frame grabber implementation based on the Silicon Software SDK
     to work with cameras with camera link standard in FULL configuration.
     """
-
     def __init__(self, device_handle, applet='Acq_FullAreaGray8'):
         """
         Implementation of the microEnable4-VD4 framegrabber.
