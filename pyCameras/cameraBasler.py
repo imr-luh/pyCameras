@@ -81,7 +81,8 @@ class Camera(CameraTemplate):
     """
     def __init__(self, device_handle):
         """
-        Implementation of the basle camera device
+        Implementation of the basler camera device. This implementation uses the
+        pypylon wrapper provided by basler.
 
         Parameters
         ----------
@@ -122,11 +123,11 @@ class Camera(CameraTemplate):
         Function to hold all implemented feature registrations
         """
         self.logger.debug('Registering implemented camera specific features')
-        self.registerFeature('TriggerSource', self.setTriggerSource)
+        self.registerFeature('TriggerSource', self._setTriggerSource)
         self.registerFeature('AcquisitionFrameRateAbs',
-                             self.getAcquisitionFrameRateAbs)
-        self.registerFeature('ImageWidth', self.getImageWidth)
-        self.registerFeature('ImageHeight', self.getImageHeight)
+                             self._getAcquisitionFrameRateAbs)
+        self.registerFeature('ImageWidth', self._getImageWidth)
+        self.registerFeature('ImageHeight', self._getImageHeight)
 
     @staticmethod
     def listDevices():
@@ -190,27 +191,6 @@ class Camera(CameraTemplate):
             Current camera image
         """
         return self.device.GrabOne(self._timeout).Array
-
-    def getFeature(self, key):
-        """
-        Get the current value for the feature defined by key
-
-        Parameters
-        ----------
-        key : str
-            String defining the feature
-
-        Returns
-        -------
-        value : str, int, float, object
-            Value of the desired feature, '<NOT READABLE>' if the value could
-            not be read
-        """
-        try:
-            value = self.features[key]()
-        except Exception:
-            value = '<NOT READABLE>'
-        return value
 
     def setExposureMicrons(self, microns=None):
         """
@@ -279,7 +259,7 @@ class Camera(CameraTemplate):
                 self.logger.exception(e)
         return self.device.properties['PixelFormat']
 
-    def setTriggerSource(self, source):
+    def _setTriggerSource(self, source):
         """
         TODO
         """
@@ -287,14 +267,14 @@ class Camera(CameraTemplate):
         self.logger.debug('BASLER: setting trigger source to {}'
                           ''.format(source))
 
-    def getAcquisitionFrameRateAbs(self):
+    def _getAcquisitionFrameRateAbs(self):
         """
         TODO
         """
         # TODO
         return 25
 
-    def getImageWidth(self):
+    def _getImageWidth(self):
         """
         Return the width of the recorded images
 
@@ -305,7 +285,7 @@ class Camera(CameraTemplate):
         """
         return self.device.Width.Value
 
-    def getImageHeight(self):
+    def _getImageHeight(self):
         """
         Return the height of the recorded images
 
@@ -319,7 +299,7 @@ class Camera(CameraTemplate):
     def setResolution(self, resolution=None):
         self.logger.warning('setResolution currently only returns current '
                             'resolution.')
-        return (self.getImageWidth(), self.getImageHeight())
+        return (self._getImageWidth(), self._getImageHeight())
 
     def grabStart(self):
         self.logger.error('grabStart not yet implemented for {cam}'
@@ -379,9 +359,7 @@ class Camera(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
-        if mode is None:
-            return self.device.TriggerMode.Value
-        elif isinstance(mode, str):
+        if isinstance(mode, str):
             self.logger.debug('Setting trigger mode {}'.format(mode))
             if mode.lower() == 'in':
                 self.device.TriggerMode = 'On'
@@ -400,10 +378,12 @@ class Camera(CameraTemplate):
                 raise ValueError('Unexpected value in setTriggerMode. '
                                  'Expected "in", "out", or "off". Got {mode}'
                                  ''.format(mode=mode))
-            return self.device.TriggerMode.Value
-        else:
+        elif mode is not None:
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
+
+        mode = self.device.TriggerMode.Value
+        return 'in' if mode.lower() == 'on' else 'off'
 
     def __del__(self):
         self.closeDevice()
