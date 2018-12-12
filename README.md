@@ -40,6 +40,16 @@ These are listed along with the corresponding interface.
 
 The AVT camera interface uses the [pymba](https://github.com/morefigs/pymba.git) backend.
 
+**Installation**
+Clone or download pymba from the given link. Install the [Vimba API](https://www.alliedvision.com/de/produkte/software.html)
+from AVT (the installation guide can be found inside the archive under `/[Vimba_Version]/Documenation/ReleaseNotes.txt`)
+
+Install pymba by moving into the pymba folder and run
+```bash
+pip install . [--user]
+```
+Add `--user` to apply the installation only to the current user. 
+
 ### Basler Cameras
 
 The Basler camera interface uses a forked version of the [PyPylon](https://gitlab.imr.uni-hannover.de/kroeger/PyPylon) backend.
