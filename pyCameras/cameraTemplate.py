@@ -278,6 +278,14 @@ class CameraTemplate(SettingsHandler):
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
 
+    @property
+    def exposure(self):
+        return self.setExposureMicrons()
+
+    @exposure.setter
+    def exposure(self, microns):
+        self.setExposureMicrons(microns)
+
     def setExposureMicrons(self, microns=None):
         """
         Set the exposure time to the given value in microseconds or read the
@@ -295,6 +303,14 @@ class CameraTemplate(SettingsHandler):
             The exposure time in microseconds after applying the passed value
         """
         raise NotImplementedError
+
+    @property
+    def resolution(self):
+        return self.setResolution()
+
+    @resolution.setter
+    def resolution(self, resolution):
+        self.setResolution(resolution)
 
     def setResolution(self, resolution=None):
         """
@@ -314,6 +330,14 @@ class CameraTemplate(SettingsHandler):
         """
         raise NotImplementedError
 
+    @property
+    def gain(self):
+        return self.setGain()
+
+    @gain.setter
+    def gain(self, gain):
+        self.setGain(gain)
+
     def setGain(self, gain=None):
         """
         Set the gain of the camera to the given value or read the current value
@@ -332,6 +356,14 @@ class CameraTemplate(SettingsHandler):
         """
         raise NotImplementedError
 
+    @property
+    def format(self):
+        return self.setFormat()
+
+    @format.setter
+    def format(self, fmt):
+        self.setFormat(fmt)
+
     def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
@@ -349,6 +381,14 @@ class CameraTemplate(SettingsHandler):
             The image format after applying the passed value
         """
         raise NotImplementedError
+
+    @property
+    def triggerMode(self):
+        return self.setTriggerMode()
+
+    @triggerMode.setter
+    def triggerMode(self, mode):
+        self.setTriggerMode(mode)
 
     def setTriggerMode(self, mode=None):
         """
