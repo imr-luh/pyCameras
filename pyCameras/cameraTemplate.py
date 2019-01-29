@@ -332,10 +332,24 @@ class CameraTemplate(SettingsHandler):
 
     @property
     def gain(self):
+        """
+        Implement get function for gain here.
+
+        Returns
+        -------
+        gain : int
+        """
         return self.setGain()
 
     @gain.setter
     def gain(self, gain):
+        """
+        Implement set function for gain here.
+
+        Parameters
+        -------
+        gain : int
+        """
         self.setGain(gain)
 
     def setGain(self, gain=None):
