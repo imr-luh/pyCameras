@@ -59,3 +59,7 @@ The Basler camera interface uses a forked version of the [PyPylon](https://gitla
 The generic USB camera interface uses [openCV](https://opencv.org/) as backend.
 Due to the wide variety of USB cameras some functionality might not work as expected with all devices.
 If possible new interfaces for specific manufacturers should be implemented to guarantee better functionality.
+
+### JAI Camera
+
+Bla this is my manual
