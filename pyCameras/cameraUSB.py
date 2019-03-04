@@ -13,9 +13,13 @@ import sys
 import cv2
 import math
 
+import serial
+import threading
+import copy
+import time
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
-LOGGING_LEVEL = None
+LOGGING_LEVEL = logging.DEBUG
 
 
 def v4l2ctlSet(device, key, value):
@@ -107,6 +111,7 @@ class Controller(ControllerTemplate):
         num_of_cams : int
             Expected number of cameras currently connected. Default = 4
         """
+
         super(Controller, self).__init__()
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
@@ -114,6 +119,9 @@ class Controller(ControllerTemplate):
         self.logger.debug('Starting usb Camera Controller')
         self.num_of_cams = num_of_cams
         self.device_handles = []
+
+
+
 
     def updateDeviceHandles(self):
         """
@@ -170,6 +178,7 @@ class Camera(CameraTemplate):
         the handle should ususally be 0, if multiple cameras are attached the
         handle for each device is counted up.
         """
+
         super(Camera, self).__init__(device_handle)
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
@@ -179,7 +188,31 @@ class Camera(CameraTemplate):
         self.registerFeature(key='resolution', callback=self.setResolution)
 
         self._expected_images = 0  # see prepareRecording(num), and record()
+        # self._checkDeviceHandle(device_handle)
+        # Controller.updateDeviceHandles()
+        self.noi = 0
+        # self.exposure = 1000
+
         self.openDevice()
+        self.imgData = []
+        self.current_frame = 0
+        self.trigger_in = True
+
+        v4l2ctlSet(device=self.device_handle,
+                   key='power_line_frequency',
+                   value='1')
+
+        # self.openDevice()
+
+
+
+
+    def _cleanup(self):
+        self.imgData.clear()
+        self.noi = 0
+
+
+
 
     @staticmethod
     def listDevices():
@@ -198,7 +231,22 @@ class Camera(CameraTemplate):
         """
         Open the device for capturing images
         """
+        camcon = Controller()
+        camcon.updateDeviceHandles()
+        print(camcon.device_handles)
+        self.device_handle= camcon.device_handles[-1]
+
+
         self.device = cv2.VideoCapture(self.device_handle)
+
+
+
+        if self.device.isOpened()==True:
+            self.logger.debug('Open device {device} successfull'
+                         ''.format(device=self.device))
+        else:
+            self.logger.debug('Open device {device} NOT successfull'
+                         ''.format(device=self.device))
 
     def closeDevice(self):
         """
@@ -211,19 +259,129 @@ class Camera(CameraTemplate):
         self.device = None
 
     def getImage(self):
-        ret, img = self.device.read()
-        if ret is True:
-            return img
-        return None
+        if self.trigger_in ==True:
+            ret, frame = self.device.read()
+            return ret, frame
+        else:
+
+            ret, frame = self.device.read()
+            if ret is True:
+                return frame
+            return None
 
     def prepareRecording(self, num):
         self._expected_images = num
+        self.logger.debug('Prepare recording {num} images'
+                          ''.format(num=self._expected_images))
+        self.trigger_in = True
 
     def record(self):
-        return [self.getImage() for _ in range(self._expected_images)]
+
+        class ardu_thread(threading.Thread):
+            def __init__(self, camera):
+                threading.Thread.__init__(self)
+                self.usbevent = threading.Event()
+                self.logger = logging.getLogger(__name__)
+                self.camera = camera
+                self.expected_images = self.camera._expected_images
+                self.gi = False #already got image
+
+            def run(self):
+                global frame
+                self.logger.debug('Starting pyUSB arduino thread')
+                self.ser = serial.Serial('/dev/ttyACM0', 9600)
+                start = time.time()
+                while True:
+                    ard = self.ser.readline()
+                    # print(ard)
+                    #
+                    if ard == b'1\r\n' and self.camera.noi < self.expected_images and not self.gi:
+                        time.sleep(5/100)
+                        self.camera.imgData.append(self.camera.current_frame)
+                        self.camera.noi +=1
+                        self.logger.debug('cap img {noi}'.format(noi=self.camera.noi))
+                        self.gi = True
+                    elif ard == b'0\r\n' and self.camera.noi < self.expected_images and self.gi:
+                        self.gi = False
+                    elif self.camera.noi == self.expected_images:
+                        self.logger.debug('Captured {noi} images'
+                                          ''.format(noi=self.camera.noi))
+
+                        self.logger.debug('Stopping pyUSB arduino thread ')
+                        dur = time.time()-start
+                        bps = 17/dur
+                        print("Bilder pro Sekunde")
+                        print(bps)
+                        # print(dur)
+                        break
+
+        class camThread(threading.Thread):
+
+            def __init__(self,camera):
+                threading.Thread.__init__(self)
+                self.logger = logging.getLogger(__name__)
+                self.camera = camera
+
+
+            def run(self):
+                global frame
+                self.logger.debug('Starting pyUSB camera thread')
+
+                while (True):
+                    if self.camera.noi < self.camera._expected_images-1:
+                        ret, self.camera.current_frame = self.camera.getImage()
+
+                    else:
+                        self.logger.debug('Stopping pyUSB camera thread')
+                        break
+
+                return self.camera.current_frame
+
+        arduthread = ardu_thread(self)
+        camthread = camThread(self)
+        arduthread.start()
+        camthread.start()
+        arduthread.join()
+        camthread.join()
+        self.returndict =  []
+        for c, value in enumerate(self.imgData, 1):
+            # convert rgb to grayscale
+            gray_img = cv2.cvtColor(value, cv2.COLOR_BGR2GRAY)
+            # rotate image
+            rows, cols = gray_img.shape
+            M = cv2.getRotationMatrix2D((cols / 2, rows / 2),5, 1)
+            rot_img = cv2.warpAffine(gray_img, M, (cols, rows))
+
+
+            s= 550
+            h = round(s/2)
+            # mittelpunkt
+            # y=round(s/2)
+            y=round(rows/2)-40
+            x = round(cols/2)+70
+
+
+
+            crop_img = rot_img[y-h:y+h, x-h:x + h]
+            self.returndict.append(crop_img)
+        self._cleanup()
+
+
+
+
+        return copy.deepcopy(self.returndict)
+
+
+        # return [self.getImage() for _ in range(self._expected_images)]
 
     def getFeature(self, key):
-        return self.features[key]()
+        print(key)
+        if self.trigger_in:
+            return 'in'
+        else:
+            return 'off'
+
+        # return self.features[key]()
 
     def setResolution(self, resolution=None):
         """
@@ -237,7 +395,7 @@ class Camera(CameraTemplate):
         """
         if resolution is None:
             # shape entries have to be flipped to return (width, height)
-            return tuple(self.getImage().shape[0:2][::-1])
+            return tuple([550,550])
         self.logger.info('Setting resolution to {resolution}'
                          ''.format(resolution=resolution))
         self.device.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
@@ -247,80 +405,82 @@ class Camera(CameraTemplate):
                                     res_y=self.device.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
     def setAutoExposure(self, value=False):
-        """
-        Turn auto exposure on or off
 
-        Parameters
-        ----------
-        value : bool
-            Turn auto exposure on if value == True, turn off if value == False
 
-        Raises
-        ------
-        NotImplementedError
-            If the functionality is not implemented for the sys.platform
-            variable
-        """
         self.logger.debug('Turning auto exposure {val}'
                           ''.format(val='off' if value is False else 'on'))
-        if sys.platform.startswith('linux'):
-            v4l2ctlSet(device=self.device_handle,
-                       key='exposure_auto',
-                       value='1' if value is False else '3')
-        elif sys.platform == 'win32':
-            # TODO: Try and implement this for windows systems
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
+
+        v4l2ctlSet(device=self.device_handle,
+                   key='exposure_auto',
+                   value='1')
+        # value = '3' for auto exposure on
+
+        auto = v4l2ctlGet(device=self.device_handle,
+                   key='exposure_auto')
+        print("Autoexposure=",auto)
+
 
     def setExposureMicrons(self, microns=None):
-        """
-        Set the exposure time to the given value in microseconds or read the
-        current value by passing None
 
-        Parameters
-        ----------
-        microns : int
-            Desired exposure time in microseconds that should be set, or None
-            to read the current exposure time
+        # microns = self.exposure
+        self.logger.debug('Setting exposure time to {microns} us'
+                          ''.format(microns=microns))
 
-        Returns
-        -------
-        microns : int
-            The exposure time in microseconds after applying the passed value
-        """
-        if microns is not None:
-            self.logger.debug('Setting exposure time to {microns}us'
-                              ''.format(microns=microns))
-            if sys.platform.startswith('linux'):
-                v4l2ctlSet(device=self.device_handle,
-                           key='exposure_absolute',
-                           value=microns//1000)
-            elif sys.platform == 'win32':
-                self.device.set(propId=cv2.CAP_PROP_EXPOSURE,
-                                value=math.log((1/(microns/1000000)), 2))
-            else:
-                raise NotImplementedError
-        else:
-            if sys.platform.startswith('linux'):
-                # TODO: This is only correct if 'flags=inactive' is not shown
-                # TODO: in the subprocess output -> check in regex?!
-                return int(v4l2ctlGet(device=self.device_handle,
-                                      key='exposure_absolute'))*1000
-            elif sys.platform == 'win32':
-                # TODO: make this work properly. Rounds to discrete values
-                return int(2**-self.device.get(propId=cv2.CAP_PROP_EXPOSURE))*1000000
-            else:
-                raise NotImplementedError
+
+        self.setAutoExposure(False)
+        v4l2ctlSet(device=self.device_handle,
+                   key='exposure_absolute',
+                   value=microns//1000)
+
+        ex= v4l2ctlGet(device=self.device_handle,key='exposure_absolute')
+        print("Exposure = ",ex)
+
 
     def __repr__(self):
         return "<USB Camera Device {handle}>".format(handle=self.device_handle)
 
 
+    def setTriggerMode(self, mode=None):
+
+        """
+        Set the trigger mode of the camera to either "in", "out" or "off", or
+        read the current trigger setting ba passing None
+
+        Parameters
+        ----------
+        mode : str
+            The desired trigger mode. "in" means the camera receives a trigger
+            signal, "out" means the camera sends a trigger signal, "off"" means
+            the camera does not react to triggers. To read the current trigger
+            setting pass None
+
+        Returns
+        -------
+        mode : str
+            The trigger mode after applying the passed value
+        """
+        self.logger.debug("Setting trigger mode to: {mode}".format(mode=mode))
+
+        if mode is None:
+            self.trigger_in=False
+            self.logger.debug("camera triggermode is None")
+
+        elif mode == 'in':
+
+            self.logger.debug("Camera triggermode is in")
+            self.trigger_in=True
+        elif mode == 'off':
+            self.logger.debug("Camera tirgermode is off")
+            self.trigger_in=False
+
+
+        # raise NotImplementedError
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
     available_devices = Camera.listDevices()
+
     cam = Camera(available_devices[-1])
 
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)

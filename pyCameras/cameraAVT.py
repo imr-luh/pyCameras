@@ -127,6 +127,7 @@ class Camera(CameraTemplate):
         device_handle : object
             Unique camera device handle to identify the camera
         """
+        print(device_handle)
         if vimba is None:
             self._vimba = Vimba()
             self._vimba.startup()
