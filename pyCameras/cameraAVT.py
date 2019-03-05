@@ -605,7 +605,7 @@ class Camera(CameraTemplate):
 
     def autoExposure(self):
         """
-        Automatically sets the exposure time of the camera.
+        Automatically sets the exposure time of the camera ONCE.
         Old exposure setting is lost during the process!
 
         Returns

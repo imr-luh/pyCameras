@@ -304,6 +304,18 @@ class CameraTemplate(SettingsHandler):
         """
         raise NotImplementedError
 
+    def autoExposure(self):
+        """
+        Automatically sets the exposure time of the camera ONCE.
+        Old exposure setting is lost during the process!
+
+        Returns
+        -------
+        exposure : int
+            The exposure time in microseconds after auto exposure
+        """
+        raise NotImplementedError
+
     @property
     def resolution(self):
         return self.setResolution()
