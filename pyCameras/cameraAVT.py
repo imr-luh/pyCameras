@@ -625,6 +625,8 @@ class Camera(CameraTemplate):
         self.device.startCapture()
 
         self.triggerMode = "off"
+        max_iter = 100
+        iter = 0
         while self.device.ExposureAuto != "Off":
             try:
                 frame.queueFrameCapture()
@@ -632,6 +634,13 @@ class Camera(CameraTemplate):
                 pass
             self.device.runFeatureCommand("AcquisitionStart")
             frame.waitFrameCapture(1000)
+            iter += 1
+            if iter >= max_iter:
+                try:
+                    raise TimeoutError("Timeout while setting auto exposure!")
+                except NameError:
+                    # Python 2 compatible Error
+                    raise Exception("Timeout while setting auto exposure!")
 
         # Cleanup
         self.device.runFeatureCommand("AcquisitionStop")
