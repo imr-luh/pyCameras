@@ -55,13 +55,15 @@ class Controller(ControllerTemplate):
 class Camera(CameraTemplate):
     """
     JAI Camaera implemntaion based on Harvester(https://github.com/genicam/harvesters)
-
     """
-    def __init__(self, device_handle, harvester=None):
-        if harvester == None:
-            self._harverster = Harvester()
-        else:
-            self._harverster = harvester
+    # Make harvester instance a singleton object
+    harvester_instance = None
+
+    def __init__(self, device_handle):
+
+        if Camera.harvester_instance == None:
+            Camera.harvester_instance = Harvester()
+        self._harverster = Camera.harvester_instance
 
         self.device_handle = device_handle
 
@@ -72,14 +74,11 @@ class Camera(CameraTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
 
         self.openDevice()
-
-        self.node_map = self.device.device.node_map
+        self.node_map.Width.value = self.node_map.WidthMax.value
+        self.node_map.Height.value = self.node_map.HeightMax.value
 
         self.img_list = list()
 
-        self.node_map.Width.value = self.node_map.WidthMax.value
-
-        self.node_map.Height.value = self.node_map.HeightMax.value
         self._expected_triggered_images = 16
 
     def __del__(self):
@@ -224,9 +223,17 @@ class Camera(CameraTemplate):
 
         try:
             self.logger.debug('Opening camera device')
-            self._harverster.add_cti_file(CTI_FILE)
-            self._harverster.update_device_info_list()
-            self.device = self._harverster.create_image_acquirer(model=self.device_handle)
+            if not self._harverster.has_revised_device_info_list:
+                self._harverster.add_cti_file(CTI_FILE)
+                self._harverster.update_device_info_list()
+
+            self.device_list = self._harverster.device_info_list
+
+            for i, device_info in enumerate(self.device_list):
+                if device_info.model == self.device_handle:
+                    self.logger.debug("Creating acquirerer from index {ind} of device list with model name {name}".format(ind=i, name=device_info.model))
+                    self.device = self._harverster.create_image_acquirer(i)
+                    self.node_map = self.device.device.node_map
 
         except Exception as e:
             self.logger.exception('Failed to open the camera device: '
