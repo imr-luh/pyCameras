@@ -12,7 +12,7 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 CTI_FILE = "/opt/mvIMPACT_Acquire/lib/x86_64/mvGenTLProducer.cti"
 
 LOGGING_LEVEL = None
-#TODO Find a way to automatically find the CTI PATH
+# TODO: Find a way to automatically find the CTI PATH
 
 class Controller(ControllerTemplate):
     """
@@ -117,9 +117,9 @@ class Camera(CameraTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
 
         self.openDevice()
-
         self.img_list = list()
 
+        self.node_map.TriggerSource.value = self.node_map.TriggerSource.symbolics[0]
 
         # Not needed, Just in case a previous Resolution was wrongly set.
         self.node_map.Width.value = self.node_map.WidthMax.value
@@ -155,7 +155,7 @@ class Camera(CameraTemplate):
             try:
                 with self.device.fetch_buffer() as buffer:
                     imgData = np.ndarray(buffer=buffer.payload.components[0].data,
-                                         dtype=np.uint16,
+                                         dtype=np.uint8,
                                          shape=((buffer.payload.components[0].height,
                                                  buffer.payload.components[0].width))).copy()
                     imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
@@ -340,8 +340,6 @@ class Camera(CameraTemplate):
                                  dtype=np.uint8,
                                  shape=((buffer.payload.components[0].height, buffer.payload.components[0].width))).copy()
 
-
-
         self.device.stop_image_acquisition()
 
         self.logger.debug('Image acquisition finished')
@@ -500,11 +498,10 @@ class Camera(CameraTemplate):
                 self.node_map.TriggerMode = 'On'
                 # TODO Implement the TriggerSource.
                 # They are 16 possible sources. Look up the Datasheet to see the physical input ranging.
-                # self.node_map.TriggerSource = 'Software'
+                self.node_map.TriggerSource = self._setTriggerSource()
                 self.node_map.TriggerSelector = 'FrameStart'
                 self.node_map.TriggerActivation = "RisingEdge"
                 self.triggerModeSetting = 'in'
-                raise NotImplementedError("The Trigger Source is not implemented yet!")
             elif mode == 'out':
                 self.triggerModeSetting = 'out'
                 raise NotImplementedError('Sending triggers is not'
@@ -582,33 +579,67 @@ class Camera(CameraTemplate):
             self.node_map.PixelFormat.value = fmt
         return self.node_map.PixelFormat.value
 
+    def _setTriggerSource(self, source_name=None, source_list_display=None):
+        """
+        Set the desired Trigger source or read the
+        current value by passing
+
+        Parameters
+        ----------
+        source_name : str
+            Desired exposure time in microseconds that should be set, or None
+            to read the current exposure time
+        source_list : Boolen
+            If true give out the source list
+
+        Returns
+        -------
+         : str
+            The exposure time in microseconds after applying the passed value
+
+        """
+        # TODO: Find the corresponding triggerpins for each source. Documentation is a little confusing.
+        trigger_sources = self.node_map.TriggerSource.symbolics
+        if source_list_display:
+            self.logger.info("(list)".format(list=trigger_sources))
+        if not source_name:
+            return self.node_map.TriggerSource.value
+
+        if not source_name in trigger_sources:
+            raise ValueError("Given source name is not a valid source for input triggering")
+
+        self.node_map.TriggerSource.value = source_name
+
+        return self.node_map.TriggerSource.value
+
     def __repr__(self):
         return repr(self.device)
 
 
-
-
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-    ############################## Controller test
-    # # Base
-    controller = Controller()
-    # list devices
-    test1 = controller.listDevices()
-    print("test 1",test1)
-    # get device
-    test2 = controller.getDevice('AD-130GE_#0')
-    print("test2",test2)
-    # # print(Controller.listDevices)
-    # # print(Controller.getDevice("AD-130GE_#0"))
-    #
+    # logging.basicConfig(level=logging.DEBUG)
+    # ############################## Controller test
+    # # # Base
+    # controller = Controller()
+    # # list devices
+    # test1 = controller.listDevices()
+    # print("test 1",test1)
+    # # get device
+    # test2 = controller.getDevice('AD-130GE_#0')
+    # print("test2",test2)
+    # # # print(Controller.listDevices)
+    # # # print(Controller.getDevice("AD-130GE_#0"))
+    # #
 
 
 
 
-    ######## Camera Test
-    # cam_device = Camera("AD-130GE_#0")
-
+    ####### Camera Test
+    cam_device = Camera("AD-130GE_#1")
+    cam_device._setTriggerSource()
+    cam_device.setTriggerMode("off")
+    # cam_device.getImage()
+    cam_device._liveView()
     # cam_device.setExposureMicrons()
     # print(cam_device.setGain())
     # cam_device.openDevice()
@@ -659,4 +690,3 @@ if __name__ == '__main__':
     #     cv2.imshow("%i number ",img)
     #     cv2.waitKey()
     # cv2.destroyAllWindows()
-    #
