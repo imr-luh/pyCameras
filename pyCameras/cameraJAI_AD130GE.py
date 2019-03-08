@@ -66,8 +66,6 @@ class Controller(ControllerTemplate):
         Returns
         -------
         cam : Camera object
-            A camera object for AVT devices corresponding to the given
-            device handle
         """
 
         self.logger.debug('Try to open device {device_handle}'
@@ -242,7 +240,7 @@ class Camera(CameraTemplate):
         """
         List available camera devices
 
-        !! It will give all available devices which uses Genicam. This Camera template is based only on Jai Cameras only
+        !! It will give all available devices which uses Genicam. This Class is only for JAI Cameras.
         Returns
         -------
         cams : list
