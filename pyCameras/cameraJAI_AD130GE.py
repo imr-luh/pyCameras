@@ -12,50 +12,96 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 CTI_FILE = "/opt/mvIMPACT_Acquire/lib/x86_64/mvGenTLProducer.cti"
 
 LOGGING_LEVEL = None
-
-
-def get_cti_file_path(self):
-    name = 'mvGenTLProducer'
-    if name in os.environ:
-        # Run tests with specified GenTL Producer:
-        cti_file_path = os.getenv(name)
-    else:
-        try:
-            import genicam2
-        except ImportError:
-            # Failed to import genicam2 module; suggest the expected
-            # solution to the client:
-            raise ImportError(
-                'You must specify a target GenTL Producer either using '
-                'HARVESTERS_TEST_TARGET or installing genicam2 module.')
-        else:
-            # Run tests with the default test target, TLSimu:
-            dir_name = get_package_dir('genicam2')
-            cti_file_path = os.path.join(dir_name, 'TLSimu.cti')
-    return cti_file_path
+#TODO Find a way to automatically find the CTI PATH
 
 class Controller(ControllerTemplate):
+    """
+    JAI Camera Controller implementation based on Harvester(https://github.com/genicam/harvesters)
+    """
+
     def __init__(self):
-        self.harvester = Harvester()
-        self.harvester.add_cti_file(CTI_FILE)
+        """
+        Camera controller for JAI camera devices. This implementation uses
+        Harvester as backend.
+        """
+        # Use the same Harvester core if it is already created
+        if not Camera.harvester_instance:
+            Camera.harvester_instance = Harvester()
+        self._harverster = Camera.harvester_instance
+
+        super(Controller, self).__init__()
+        self.logger = logging.getLogger(__name__)
+        if LOGGING_LEVEL is not None:
+            self.logger.setLevel(LOGGING_LEVEL)
+        self.logger.debug('Starting JAI Camera Controller')
 
         try:
-            self.harvester.update_device_info_list()
+            self._harverster.add_cti_file(CTI_FILE)
         except LoadLibraryException:
             raise LoadLibraryException("Installation path differs from default value. Change constant CTI_FILE to correct file path.")
 
-    def listDevices(self):
-        self.harvester.update_device_info_list()
-        tmp = self.harvester.device_info_list
-        # This has to run, otherwise Problem with the camera class. Not the best solution will be worked
-        self.harvester.reset()
-        return
-    pass
+    def updateDeviceHandles(self):
+        """
+        Refresh the list of available devices
+        """
+        self.logger.debug("Start updating device handles")
+
+        if not self._harverster.has_revised_device_info_list:
+            self._harverster.add_cti_file(CTI_FILE)
+            self._harverster.update_device_info_list()
+
+        self.device_handles = self._harverster.device_info_list
+
+        self.logger.debug("Finished to update device handles and initialize it")
+
+
+    def getDevice(self, device_handle):
+        """
+        Return the corresponding camera object for given device handle
+
+        Parameters
+        ----------
+        device_handle : Harvester gives multiple unique strings related to a Camera. Here the model name is used.
+
+
+        Returns
+        -------
+        cam : Camera object
+            A camera object for AVT devices corresponding to the given
+            device handle
+        """
+
+        self.logger.debug('Try to open device {device_handle}'
+                          ''.format(device_handle=device_handle))
+
+        for i, device_info in enumerate(self.device_handles):
+
+            if device_info.model == device_handle:
+                self.logger.debug("Found the Model name from index {ind} of device list with model name {name}".format(ind=i, name=device_info.model))
+                try:
+                    return Camera(device_handle)
+                except Exception as e:
+                        self.logger.exception('Failed to open the camera device: {e}'
+                                          .format(e=e))
+                        raise
+            else:
+                self.logger.info("Was not able to open camera with given device handle!!\n' \
+                   'Handle must be the correct Model Name >")
+
+    def closeController(self):
+        """
+        Close the camera controller and do the necessary cleanup
+        """
+        self._harverster.reset()
+    def __repr__(self):
+        return "<JAI Camera Controller>"
+
 
 class Camera(CameraTemplate):
     """
-    JAI Camaera implemntaion based on Harvester(https://github.com/genicam/harvesters)
+    JAI Camera implementation based on Harvester(https://github.com/genicam/harvesters)
     """
+
     # Make harvester instance a singleton object
     harvester_instance = None
 
@@ -68,24 +114,35 @@ class Camera(CameraTemplate):
         self.device_handle = device_handle
 
         super(Camera, self).__init__(device_handle)
-
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
 
         self.openDevice()
+
+        self.img_list = list()
+
+
+        # Not needed, Just in case a previous Resolution was wrongly set.
         self.node_map.Width.value = self.node_map.WidthMax.value
         self.node_map.Height.value = self.node_map.HeightMax.value
 
         self.img_list = list()
 
-        self._expected_triggered_images = 16
+        # Register JAI Camera specific functions.
+        # Function to set maximum transfer rate depending has to be yet implemented
+        self.registerFeature("gainselector",self._gain_selector)
 
     def __del__(self):
         self.closeDevice()
         self._harverster.reset()
 
     def _liveView(self):
+        """
+        Live image stream an visualization through OpenCV window
+
+        Leave _liveView by pressing "q"
+        """
         cv2.startWindowThread()
         cv2.namedWindow("IMG", 2)
         cv2.resizeWindow("IMG", 900, 900)
@@ -122,6 +179,17 @@ class Camera(CameraTemplate):
                 break
 
     def _setMaxTransferRate(self):
+        """
+        Sets the transfer rate.
+        If passed None, will return actual rate set.
+
+        """
+
+        # TODO Implement setMaxTransferRate
+        # self.node_map.PayloadSize.value = self.Transferrate
+        # self.logger.debug("Not implendted yet"
+        #                   )
+
         pass
 
     def _gain_selector(self,selector = None):
@@ -152,51 +220,19 @@ class Camera(CameraTemplate):
             self.node_map.GainSelector = selector
         return self.node_map.GainSelector.value
 
-    def _getImages(self,num_images_to_acquire = 16, *args, **kwargs):
-        """
-        Get an image from the camera device
 
-        *args and **kwargs are ignored parameters!
-
-
-        Returns
-        -------
-        img : np.ndarray
-            Current camera image
-        """
-
-        images_list = []
-
-        self.logger.debug('Creating Buffer and starting acquisition')
-        self.device.start_image_acquisition()
-        # self.device.
-        # self.device.num_filled_buffers_to_hold = num_images_to_acquire
-
-
-        # Read the needed Information from the buffer
-        # print(buffer)
-        # _1d = buffer.payload.components[0].data
-        # height = buffer.payload.components[0].height
-        # width = buffer.payload.components[0].width
-        # imgData = np.reshape(buffer.payload.components[0].data,(height,width))
-        while num_images_to_acquire  > 0:
-
-            with self.device.fetch_buffer() as buffer:
-                # imgData = np.reshape(buffer.payload.components[0].data,
-                #                      (buffer.payload.components[0].height,buffer.payload.components[0].width)).copy()
-
-                imgData = np.ndarray(buffer=buffer.payload.components[0].data,
-                                     dtype=np.uint8,
-                                     shape=((buffer.payload.components[0].height, buffer.payload.components[0].width))).copy()
-                images_list.append(imgData)
-            num_images_to_acquire -=1
-
-        return images_list
 
     def _frame_callback(self):
+        """
+        Callback function to fill frames with data
+
+        Parameters
+        -------
+        frame : frame object
+            frame created by device.getFrame()
+        """
+
         with self.device.fetch_buffer() as buffer:
-            # imgData = np.reshape(buffer.payload.components[0].data,
-            #                      (buffer.payload.components[0].height,buffer.payload.components[0].width)).copy()
 
             imgData = np.ndarray(buffer=buffer.payload.components[0].data,
                                  dtype=np.uint8,
@@ -206,21 +242,21 @@ class Camera(CameraTemplate):
 
     def listDevices(self):
         """
-        List available GenTlproducer cameras
+        List available camera devices
 
+        !! It will give all available devices which uses Genicam. This Camera template is based only on Jai Cameras only
         Returns
         -------
         cams : list
-            list of available GenTlproducer devices
+            list of available Camera devices
         """
 
         return Controller.listDevices()
 
     def openDevice(self):
         """
-        Opens a camera device with the stored self.device object
+        Opens a camera device.
         """
-
         try:
             self.logger.debug('Opening camera device')
             if not self._harverster.has_revised_device_info_list:
@@ -229,6 +265,8 @@ class Camera(CameraTemplate):
 
             self.device_list = self._harverster.device_info_list
 
+            # self.device = self._harverster.create_image_acquirer(model=self.device_handle)
+            # self.node_map = self.device.device.node_map
             for i, device_info in enumerate(self.device_list):
                 if device_info.model == self.device_handle:
                     self.logger.debug("Creating acquirerer from index {ind} of device list with model name {name}".format(ind=i, name=device_info.model))
@@ -238,6 +276,7 @@ class Camera(CameraTemplate):
         except Exception as e:
             self.logger.exception('Failed to open the camera device: '
                                   '{e}'.format(e=e))
+            raise
 
     def closeDevice(self):
         """
@@ -322,10 +361,6 @@ class Camera(CameraTemplate):
         num : int
             number of frames to be captured during acquisition
         """
-        #TODo if hatrvers is on you have to fuind
-
-
-        # self.device.num_filled_buffers_to_hold = num
         self.device.start_image_acquisition()
 
         self._expected_triggered_images = num
@@ -341,7 +376,6 @@ class Camera(CameraTemplate):
             List of images
         """
 
-        # self.node_map.AcquisitionStart
         self.logger.info('AcquisitionStart')
         while  self._expected_triggered_images > 0:
 
@@ -365,18 +399,29 @@ class Camera(CameraTemplate):
         return self.img_list
 
     def grabStart(self, num=None):
+        """
+        Start grabbing images in a non-blocking
+        way and store those images in
+        an internal variable
+
+        See Also
+        --------
+        self.grabStop()
+        """
         self.num_images = num
         self.device.start_image_acquisition()
         self.img_list = list()
         self.device.on_new_buffer_arrival = self._frame_callback
 
     def grabStop(self):
-        self.device.stop_image_acquisition()
+        """
+        Stop grabbing images and return the images that have been recorded
 
-        # while self.num_images != 0:
-        #     with self.device.fetch_buffer() as buffer:
-        #         imgData = np.ndarray(buffer)
-        #         self.img_list.append(imgData)
+        See Also
+        --------
+        self.grabStart()
+        """
+        self.device.stop_image_acquisition()
         return self.img_list
 
     def setExposureMicrons(self, microns=None):
@@ -400,8 +445,9 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug('Setting <ExposureTime> to {microns}'
                               ''.format(microns=microns))
-            self.node_map.ExposureTime.value = microns
-        return self.node_map.ExposureTime.value
+            self.node_map.ExposureAbs.value = microns
+            self.logger.info("Setted microns fluctuate")
+        return self.node_map.ExposureAbs.value
 
     def setResolution(self, resolution=None):
         """
@@ -456,13 +502,14 @@ class Camera(CameraTemplate):
         elif mode is not None:
             if mode == 'in':
                 self.node_map.TriggerMode = 'On'
-                # They are 16 possible sources. Look up the Datasheet to see the physical input ranging. Use 'Software' for a software trigger.
+                # TODO Implement the TriggerSource.
+                # They are 16 possible sources. Look up the Datasheet to see the physical input ranging.
                 # self.node_map.TriggerSource = 'Software'
                 self.node_map.TriggerSelector = 'FrameStart'
                 self.node_map.TriggerActivation = "RisingEdge"
                 self.triggerModeSetting = 'in'
+                raise NotImplementedError("The Trigger Source is not implemented yet!")
             elif mode == 'out':
-                # TODO: Implement out trigger for AVT cameras
                 self.triggerModeSetting = 'out'
                 raise NotImplementedError('Sending triggers is not'
                                           'implemented yet!')
@@ -571,7 +618,7 @@ class Camera(CameraTemplate):
             7 = {str} 'RGB10V2Packed'
 
         !! To convert the Formats in Opencv, see here(https://www.baumer.com/de/de/service-support/know-how/technische-anwendungshinweise-industriekameras/baumer-gapi-und-opencv/a/baumer-gapi-and-opencv)
-
+        For 'BayerRG8' use dataformat uint8 for the rest use uint16 as dataformat.
         Returns
         -------
         fmt : str
@@ -593,11 +640,26 @@ class Camera(CameraTemplate):
 
 
 if __name__ == '__main__':
-    import time
-
     logging.basicConfig(level=logging.DEBUG)
-    # print(Controller().listDevices())
-    cam_device = Camera("AD-130GE_#1")
+    ############################## Controller test
+    # # Base
+    controller = Controller()
+    # list devices
+    test1 = controller.listDevices()
+    print("test 1",test1)
+    # get device
+    test2 = controller.getDevice('AD-130GE_#0')
+    print("test2",test2)
+    # # print(Controller.listDevices)
+    # # print(Controller.getDevice("AD-130GE_#0"))
+    #
+
+
+
+
+    ######## Camera Test
+    # cam_device = Camera("AD-130GE_#0")
+
     # cam_device.setExposureMicrons()
     # print(cam_device.setGain())
     # cam_device.openDevice()
@@ -617,7 +679,7 @@ if __name__ == '__main__':
     #         assert exposure < 10 or exposure > 32000
 
 
-    # Resoultion
+    #### Resoultion
     # print(cam_device.setResolution(()))
 
     # Format
@@ -634,20 +696,18 @@ if __name__ == '__main__':
     #     cv2.waitKey(0)
     # print("Done")
 
-    # cam_device._liveView()
-    # images = cam_device.getImages(16)
+
+    #### Get image
+    # img = cam_device.getImage()
+    # cv2.imshow("df", img)
+    # cv2.waitKey(0)
+
+    ## GEt images
     # images = cam_device.getImages(200)
-    # cam_device._gain_selector("DigitalGb")
-    # print(cam_device._gain_selector())
+    # print(len(images))
     #
     # for img in images:
     #     cv2.imshow("%i number ",img)
     #     cv2.waitKey()
     # cv2.destroyAllWindows()
-
-    # img = Camera.getImage(cam_device)
-    # for i in range (100):
-    #     img = Camera.getImage(cam_device)
-    #     cv2.imshow("testi", img)
-    #     cv2.waitKey()
-    # cv2.destroyAllWindows()
+    #
