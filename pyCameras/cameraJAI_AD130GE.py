@@ -54,7 +54,6 @@ class Controller(ControllerTemplate):
 
         self.logger.debug("Finished to update device handles and initialize it")
 
-
     def getDevice(self, device_handle):
         """
         Return the corresponding camera object for given device handle
@@ -93,6 +92,7 @@ class Controller(ControllerTemplate):
         Close the camera controller and do the necessary cleanup
         """
         self._harverster.reset()
+
     def __repr__(self):
         return "<JAI Camera Controller>"
 
@@ -219,8 +219,6 @@ class Camera(CameraTemplate):
                               ''.format(selector = selector))
             self.node_map.GainSelector = selector
         return self.node_map.GainSelector.value
-
-
 
     def _frame_callback(self):
         """
@@ -528,47 +526,6 @@ class Camera(CameraTemplate):
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
 
-    def _getImages(self,num_images_to_acquire = 16, *args, **kwargs):
-        """
-        Get an image from the camera device
-
-        *args and **kwargs are ignored parameters!
-
-
-        Returns
-        -------
-        img : np.ndarray
-            Current camera image
-        """
-
-        images_list = []
-
-        self.logger.debug('Creating Buffer and starting acquisition')
-        self.device.start_image_acquisition()
-        # self.device.
-        # self.device.num_filled_buffers_to_hold = num_images_to_acquire
-
-
-        # Read the needed Information from the buffer
-        # print(buffer)
-        # _1d = buffer.payload.components[0].data
-        # height = buffer.payload.components[0].height
-        # width = buffer.payload.components[0].width
-        # imgData = np.reshape(buffer.payload.components[0].data,(height,width))
-        while num_images_to_acquire  > 0:
-
-            with self.device.fetch_buffer() as buffer:
-                # imgData = np.reshape(buffer.payload.components[0].data,
-                #                      (buffer.payload.components[0].height,buffer.payload.components[0].width)).copy()
-
-                imgData = np.ndarray(buffer=buffer.payload.components[0].data,
-                                     dtype=np.uint8,
-                                     shape=((buffer.payload.components[0].height, buffer.payload.components[0].width))).copy()
-                images_list.append(imgData)
-            num_images_to_acquire -=1
-
-        return images_list
-
     def setGain(self, gain=None):
         """
         Set the gain of the camera to the given value or read the current value
@@ -592,10 +549,6 @@ class Camera(CameraTemplate):
 
 
         return self.node_map.GainRaw.value
-
-
-
-        # cv2.cvtColor(imgData,cv2.COLOR_BAYER_RG2RG)
 
     def setFormat(self, fmt=None):
         """
@@ -631,10 +584,8 @@ class Camera(CameraTemplate):
             self.node_map.PixelFormat.value = fmt
         return self.node_map.PixelFormat.value
 
-    def setTriggerMode(self, mode=None):
-
-
-        pass
+    def __repr__(self):
+        return repr(self.device)
 
 
 
