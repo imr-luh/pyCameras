@@ -272,7 +272,6 @@ class Camera(CameraTemplate):
 
         *args and **kwargs are ignored parameters!
 
-
         Returns
         -------
         img : np.ndarray
@@ -337,10 +336,12 @@ class Camera(CameraTemplate):
         Start grabbing images in a non-blocking
         way and store those images in
         an internal variable
+
         Parameters
         ----------
         num : int
             Desired Number of images
+
         See Also
         --------
         self.grabStop()
@@ -376,7 +377,6 @@ class Camera(CameraTemplate):
         microns : int
             Desired exposure time in microseconds that should be set, or None
             to read the current exposure time
-
 
         Returns
         -------
@@ -565,7 +565,6 @@ class Camera(CameraTemplate):
             raise ValueError("Given source name is not a valid source for input triggering")
 
         self.node_map.TriggerSource.value = source_name
-
 
     def __repr__(self):
         return repr(self.device)
