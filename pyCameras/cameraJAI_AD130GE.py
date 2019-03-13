@@ -10,6 +10,8 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 CTI_FILE = "/opt/mvIMPACT_Acquire/lib/x86_64/mvGenTLProducer.cti"
 
 LOGGING_LEVEL = None
+
+
 # TODO: Find a way to automatically find the CTI PATH
 
 
@@ -25,7 +27,6 @@ class Controller(ControllerTemplate):
         Camera controller for JAI camera devices. This implementation uses
         Harvester as backend.
         """
-
         if Controller.harvester_instance is None:
             Controller.harvester_instance = Harvester()
         self._harverster = Controller.harvester_instance
@@ -79,12 +80,12 @@ class Controller(ControllerTemplate):
                 try:
                     return Camera(device_handle)
                 except Exception as e:
-                        self.logger.exception('Failed to open the camera device: {e}'
+                    self.logger.exception('Failed to open the camera device: {e}'
                                           .format(e=e))
-                        raise
+                    raise
             else:
                 self.logger.info("Was not able to open camera with given device handle!!\n" \
-                   "Handle must be the correct Model Name >")
+                                 "Handle must be the correct Model Name >")
 
     def closeController(self):
         """
@@ -100,9 +101,6 @@ class Camera(CameraTemplate):
     """
     JAI Camera implementation based on Harvester(https://github.com/genicam/harvesters)
     """
-    # Make harvester instance a singleton object
-    harvester_instance = None
-
     def __init__(self, device_handle):
         """
         Implementation of the JAI camera device
@@ -117,8 +115,6 @@ class Camera(CameraTemplate):
             Controller.harvester_instance = Harvester()
         self._harverster = Controller.harvester_instance
 
-
-
         self.device_handle = device_handle
 
         super(Camera, self).__init__(device_handle)
@@ -132,8 +128,6 @@ class Camera(CameraTemplate):
         # Not needed, Just in case a previous Resolution was wrongly set.
         self.node_map.Width.value = self.node_map.WidthMax.value
         self.node_map.Height.value = self.node_map.HeightMax.value
-
-        self.img_list = list()
 
         # Register JAI Camera specific functions.
         # Function to set maximum transfer rate depending has to be yet implemented
@@ -184,21 +178,7 @@ class Camera(CameraTemplate):
                 self.logger.info("Frames dropped: %s" % droppedframes)
                 break
 
-    def _setMaxTransferRate(self):
-        """
-        Sets the transfer rate.
-        If passed None, will return actual rate set.
-
-        """
-
-        # TODO Implement setMaxTransferRate
-        # self.node_map.PayloadSize.value = self.Transferrate
-        # self.logger.debug("Not implendted yet"
-        #                   )
-
-        pass
-
-    def _gain_selector(self, selector = None):
+    def _gain_selector(self, selector=None):
         """
         Chose the desired Gain Selector.
 
@@ -220,7 +200,7 @@ class Camera(CameraTemplate):
         """
         if selector is not None:
             self.logger.debug('Setting <Gain Selector> to {selector}'
-                              ''.format(selector = selector))
+                              ''.format(selector=selector))
             self.node_map.GainSelector = selector
         return self.node_map.GainSelector.value
 
@@ -232,8 +212,8 @@ class Camera(CameraTemplate):
             imgData = np.ndarray(buffer=buffer.payload.components[0].data,
                                  dtype=np.uint8,
                                  shape=(
-                                 (buffer.payload.components[0].height,
-                                  buffer.payload.components[0].width))).copy()
+                                     (buffer.payload.components[0].height,
+                                      buffer.payload.components[0].width))).copy()
             self.img_list.append(imgData)
 
     def listDevices(self):
@@ -441,9 +421,6 @@ class Camera(CameraTemplate):
         Set the trigger mode of the camera to either "in", "out" or "off", or
         read the current trigger setting via passing None
 
-        Notes:
-
-
         Parameters
         ----------
         mode : str
@@ -470,7 +447,7 @@ class Camera(CameraTemplate):
                 print(self.node_map.TriggerMode)
                 # TODO Implement the TriggerSource.
                 # They are 16 possible sources. Look up the Datasheet to see the physical input ranging.
-                self.node_map.TriggerSource.value = self._setTriggerSource(source_name=None)
+                self._setTriggerSource(source_name=None)
                 self.node_map.TriggerSelector.value = 'FrameStart'
                 self.node_map.TriggerActivation.value = "RisingEdge"
                 self.triggerModeSetting = 'in'
@@ -480,7 +457,7 @@ class Camera(CameraTemplate):
                                           'implemented yet!')
             elif mode == 'off':
                 self.node_map.TriggerMode.value = 'Off'
-                self.node_map.TriggerSource.value = self._setTriggerSource(source_name='NotConnected')
+                self._setTriggerSource(source_name='NotConnected')
                 self.node_map.TriggerSelector.value = 'FrameStart'
                 self.triggerModeSetting = 'off'
             else:
@@ -548,9 +525,10 @@ class Camera(CameraTemplate):
             self.node_map.PixelFormat.value = fmt
         return self.node_map.PixelFormat.value
 
-    def _setTriggerSource(self, source_name=None, ):
+    def _setTriggerSource(self, source_name=None):
         """
-        Set the desired Trigger source. Check the following for the avaiable Formats :
+        Set the desired Trigger source. If None, source_name is Line5 as default.
+        Check the following for the avaiable Formats :
             00 = {str} 'Line5'
             01 = {str} 'Line6'
             02 = {str} 'Line7'
@@ -574,13 +552,6 @@ class Camera(CameraTemplate):
         source_name : str
             Desired exposure time in microseconds that should be set, or None
             to read the current exposure time
-        source_list_display : Boolen
-            If true give out the source list
-
-        Returns
-        -------
-         : str
-            The exposure time in microseconds after applying the passed value
         """
         # TODO: Find the corresponding triggerpins for each source. Documentation is a little confusing.
 
@@ -590,12 +561,11 @@ class Camera(CameraTemplate):
         if source_name is None:
             return self.node_map.TriggerSource.value
 
-        if not source_name in trigger_sources:
+        if source_name not in trigger_sources:
             raise ValueError("Given source name is not a valid source for input triggering")
 
         self.node_map.TriggerSource.value = source_name
 
-        return self.node_map.TriggerSource.value
 
     def __repr__(self):
         return repr(self.device)
@@ -615,9 +585,6 @@ if __name__ == '__main__':
     # # # print(Controller.listDevices)
     # # # print(Controller.getDevice("AD-130GE_#0"))
     # #
-
-
-
 
     ####### Camera Test
     cam_device = Camera("AD-130GE_#0")
@@ -644,7 +611,6 @@ if __name__ == '__main__':
     #     except OutOfRangeException:
     #         assert exposure < 10 or exposure > 32000
 
-
     #### Resoultion
     # print(cam_device.setResolution(()))
 
@@ -661,7 +627,6 @@ if __name__ == '__main__':
     #     cv2.imshow('bla', img)
     #     cv2.waitKey(0)
     # print("Done")
-
 
     #### Get image
     # img = cam_device.getImage()
