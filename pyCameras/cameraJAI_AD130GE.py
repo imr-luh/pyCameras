@@ -421,8 +421,10 @@ class Camera(CameraTemplate):
         """
         Set the trigger mode of the camera to either "in", "out" or "off", or
         read the current trigger setting via passing None
-        Note: Only Line5 is avaiblable yet. Therefore it is set as defeault.
-        you can 
+        
+        Note: Only Line5 is avaiblable yet. Therefore it is set as default.
+        To change it call self._setTriggerSource before running set triggerMode
+        
         Parameters
         ----------
         mode : str
@@ -525,8 +527,9 @@ class Camera(CameraTemplate):
 
     def _setTriggerSource(self, source_name=None):
         """
-        Set the desired Trigger source. If None, source_name is Line5 as default.
-        Check the following for the avaiable Formats :
+        Set the desired Trigger source or read the current value
+        by passing None.
+        Check the following for the avaiable Sources :
             00 = {str} 'Line5'
             01 = {str} 'Line6'
             02 = {str} 'Line7'
@@ -548,8 +551,7 @@ class Camera(CameraTemplate):
         Parameters
         ----------
         source_name : str
-            Desired exposure time in microseconds that should be set, or None
-            to read the current exposure time
+            The source name after applying the passed name
         """
         # TODO: Find the corresponding triggerpins for each source. Documentation is a little confusing.
         trigger_sources = self.node_map.TriggerSource.symbolics
