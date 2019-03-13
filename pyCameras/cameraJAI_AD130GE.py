@@ -124,6 +124,7 @@ class Camera(CameraTemplate):
 
         self.openDevice()
         self.img_list = list()
+        self._setTriggerSource(source_name='Line5')
 
         # Not needed, Just in case a previous Resolution was wrongly set.
         self.node_map.Width.value = self.node_map.WidthMax.value
@@ -420,7 +421,8 @@ class Camera(CameraTemplate):
         """
         Set the trigger mode of the camera to either "in", "out" or "off", or
         read the current trigger setting via passing None
-
+        Note: Only Line5 is avaiblable yet. Therefore it is set as defeault.
+        you can 
         Parameters
         ----------
         mode : str
@@ -444,10 +446,6 @@ class Camera(CameraTemplate):
         elif mode is not None:
             if mode == 'in':
                 self.node_map.TriggerMode.value = 'On'
-                print(self.node_map.TriggerMode)
-                # TODO Implement the TriggerSource.
-                # They are 16 possible sources. Look up the Datasheet to see the physical input ranging.
-                self._setTriggerSource(source_name=None)
                 self.node_map.TriggerSelector.value = 'FrameStart'
                 self.node_map.TriggerActivation.value = "RisingEdge"
                 self.triggerModeSetting = 'in'
@@ -554,10 +552,7 @@ class Camera(CameraTemplate):
             to read the current exposure time
         """
         # TODO: Find the corresponding triggerpins for each source. Documentation is a little confusing.
-
         trigger_sources = self.node_map.TriggerSource.symbolics
-        self.node_map.TriggerSource.value = self.node_map.TriggerSource.symbolics[0]
-        self.logger.warning('Only Line5 is avaiblable. Setting as default value')
         if source_name is None:
             return self.node_map.TriggerSource.value
 
