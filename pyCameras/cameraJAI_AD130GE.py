@@ -17,7 +17,8 @@ LOGGING_LEVEL = None
 
 class Controller(ControllerTemplate):
     """
-    JAI Camera Controller implementation based on Harvester(https://github.com/genicam/harvesters)
+    JAI Camera Controller implementation based on
+    Harvester(https://github.com/genicam/harvesters)
     """
     # Make harvester instance a singleton object
     harvester_instance = None
@@ -40,8 +41,9 @@ class Controller(ControllerTemplate):
         try:
             self._harverster.add_cti_file(CTI_FILE)
         except LoadLibraryException:
-            raise LoadLibraryException("Installation path differs from default value."
-                                       "Change constant CTI_FILE to correct file path.")
+            raise LoadLibraryException("Installation path differs from default "
+                                       "value. Change constant CTI_FILE to "
+                                       "correct file path.")
 
     def updateDeviceHandles(self):
         """
@@ -63,7 +65,9 @@ class Controller(ControllerTemplate):
 
         Parameters
         ----------
-        device_handle : Harvester gives multiple unique strings related to a Camera. Here the model name is used.
+        device_handle :
+            Harvester gives multiple unique strings related to a Camera. Here
+            the model name is used.
 
         Returns
         -------
@@ -76,16 +80,19 @@ class Controller(ControllerTemplate):
 
             if device_info.model == device_handle:
                 self.logger.debug("Found the Model name from index "
-                                  "{ind} of device list with model name {name}".format(ind=i, name=device_info.model))
+                                  "{ind} of device list with model name {name}"
+                                  "".format(ind=i,
+                                            name=device_info.model))
                 try:
                     return Camera(device_handle)
                 except Exception as e:
-                    self.logger.exception('Failed to open the camera device: {e}'
-                                          .format(e=e))
+                    self.logger.exception('Failed to open the camera device:'
+                                          '{e}'.format(e=e))
                     raise
             else:
-                self.logger.info("Was not able to open camera with given device handle!!\n" \
-                                 "Handle must be the correct Model Name >")
+                self.logger.info("Was not able to open camera with given "
+                                 "device handle!!\nHandle must be the correct "
+                                 "Model Name >")
 
     def closeController(self):
         """
@@ -99,7 +106,8 @@ class Controller(ControllerTemplate):
 
 class Camera(CameraTemplate):
     """
-    JAI Camera implementation based on Harvester(https://github.com/genicam/harvesters)
+    JAI Camera implementation based on
+    Harvester(https://github.com/genicam/harvesters)
     """
     def __init__(self, device_handle):
         """
@@ -186,8 +194,8 @@ class Camera(CameraTemplate):
         Parameters
         ----------
         selector : str
-            Desired Selector Gain as a String. None to read the current Gain Selector.
-            The following Selctor are avaialbe.
+            Desired Selector Gain as a String. None to read the current Gain
+            Selector. The following Selctor are avaialbe.
             0 = {str} 'AnaloglAll'
             1 = {str} 'DigitalGr'
             2 = {str} 'DigitalGb'
@@ -221,7 +229,9 @@ class Camera(CameraTemplate):
         """
         List available camera devices
 
-        !! It will give all available devices which uses Genicam. This Class is only for JAI Cameras.
+        !! It will give all available devices which uses Genicam. This Class is
+        only for JAI Cameras.
+
         Returns
         -------
         cams : list
@@ -242,8 +252,10 @@ class Camera(CameraTemplate):
 
         for i, device_info in enumerate(self.device_list):
             if device_info.model == self.device_handle:
-                self.logger.debug("Creating acquirerer from index {ind} of device list "
-                                  "with model name {name}".format(ind=i, name=device_info.model))
+                self.logger.debug("Creating acquirerer from index {ind} of "
+                                  "device list with model name {name}"
+                                  "".format(ind=i,
+                                            name=device_info.model))
                 self.device = self._harverster.create_image_acquirer(i)
                 self.node_map = self.device.device.node_map
 
@@ -499,8 +511,9 @@ class Camera(CameraTemplate):
         Parameters
         ----------
         fmt : str
-            String describing the desired image format (e.g. "BayerRG8"), or None
-            to read the current image format. Check the following for the avaiable Formats.
+            String describing the desired image format (e.g. "BayerRG8"), or
+            None to read the current image format. Check the following for the
+            avaiable Formats.
 
             0 = {str} 'BayerRG8'
             1 = {str} 'BayerRG10'
@@ -512,7 +525,8 @@ class Camera(CameraTemplate):
             7 = {str} 'RGB10V2Packed'
 
         !! To convert the Formats in Opencv, see here(https://www.baumer.com/de/de/service-support/know-how/technische-anwendungshinweise-industriekameras/baumer-gapi-und-opencv/a/baumer-gapi-and-opencv)
-        For 'BayerRG8' use dataformat uint8 for the rest use uint16 as dataformat.
+        For 'BayerRG8' use dataformat uint8 for the rest use uint16 as
+        dataformat.
 
         Returns
         -------
@@ -559,7 +573,8 @@ class Camera(CameraTemplate):
             return self.node_map.TriggerSource.value
 
         if source_name not in trigger_sources:
-            raise ValueError("Given source name is not a valid source for input triggering")
+            raise ValueError("Given source name is not a valid source for "
+                             "input triggering")
 
         self.node_map.TriggerSource.value = source_name
 
