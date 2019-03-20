@@ -59,3 +59,30 @@ The Basler camera interface uses a forked version of the [PyPylon](https://gitla
 The generic USB camera interface uses [openCV](https://opencv.org/) as backend.
 Due to the wide variety of USB cameras some functionality might not work as expected with all devices.
 If possible new interfaces for specific manufacturers should be implemented to guarantee better functionality.
+
+### JAI Camera
+
+JAI Cameras use [Harvester](https://github.com/genicam/harvesters) backend ( Version: 0.2.8). To use Harvester the following Pre-requisites are needed:
+
+###### JAI SDK :
+For windows:
+
+see [here (not tested)](https://www.jai.com/support-software/jai-software). 
+
+For linux:
+
+see [here with instruction](https://gitlab.imr.uni-hannover.de/imr/jai_sdk_linux).
+###### GenTL Producers
+For Windows: -.
+
+For Linux: 
+
+
+You can download the needed software [here](http://static.matrix-vision.com/mvIMPACT_Acquire/2.29.0/). 
+To install, download the desired version for your architecture with the corresponding .sh file. Execute the .sh file. You can also copy the content and create your own .sh file
+(sudo rights needed). Please read the .sh file carefully. It is tested with the following [.sh file](http://static.matrix-vision.com/mvIMPACT_Acquire/2.29.0/install_mvGenTL_Acquire.sh) and [.tgz file](http://static.matrix-vision.com/mvIMPACT_Acquire/2.29.0/mvGenTL_Acquire-x86_64_ABI2-2.29.0.tgz) for Ubuntu 16.04, 64-bit version.
+
+To install Harvester simply run (tested for python3)
+```bash
+pip3 install harvester --user
+```
