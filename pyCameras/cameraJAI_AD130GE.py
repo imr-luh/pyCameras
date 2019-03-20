@@ -303,7 +303,7 @@ class Camera(CameraTemplate):
 
         self.logger.debug('Image acquisition finished')
 
-        return imgData.copy()
+        return imgData
 
     def prepareRecording(self, num):
         """ Sets the camera to MultiFrame mode and prepares frames. Use with
@@ -583,72 +583,7 @@ class Camera(CameraTemplate):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-    # ############################## Controller test
-    # # # Base
-    # controller = Controller()
-    # # list devices
-    # test1 = controller.listDevices()
-    # print("test 1",test1)
-    # # get device
-    # test2 = controller.getDevice('AD-130GE_#0')
-    # print("test2",test2)
-    # # # print(Controller.listDevices)
-    # # # print(Controller.getDevice("AD-130GE_#0"))
-    # #
-
-    ####### Camera Test
+    ##### Avaiable camera Model names
     cam_device = Camera("AD-130GE_#0")
-
-    cam_device.setTriggerMode("off")
-    # print(cam_device._setTriggerSource())
-    # cam_device.getImage()
+    # cam_device = Camera("AD-130GE_#1")
     cam_device._liveView()
-    # cam_device.setExposureMicrons()
-    # print(cam_device.setGain())
-    # cam_device.openDevice()
-
-    # Testing Exposure
-    # exposures = [120, 1000, 5000, 10000]
-    # img_intensity = []
-    # for exposure in exposures:
-    #     try:
-    #         cam_device.setExposureMicrons(exposure)
-    #         img = cam_device.getImage()
-    #         # print(img)
-    #         # img_intensity.append(np.mean(np.max(img),np.min(img)))
-    #         # assert cam_device.setExposureMicrons() == exposure
-    #
-    #     except OutOfRangeException:
-    #         assert exposure < 10 or exposure > 32000
-
-    #### Resoultion
-    # print(cam_device.setResolution(()))
-
-    # Format
-    # print(cam_device.setFormat("BayerRG8"))
-
-    # cam_device._liveView()
-    # cam_device.grabStart()
-    # time.sleep(1)
-    # img_list = cam_device.grabStop()
-    #
-    # print(len(img_list))
-    # for img in img_list:
-    #     cv2.imshow('bla', img)
-    #     cv2.waitKey(0)
-    # print("Done")
-
-    #### Get image
-    # img = cam_device.getImage()
-    # cv2.imshow("df", img)
-    # cv2.waitKey(0)
-
-    ## GEt images
-    # images = cam_device.getImages(200)
-    # print(len(images))
-    #
-    # for img in images:
-    #     cv2.imshow("%i number ",img)
-    #     cv2.waitKey()
-    # cv2.destroyAllWindows()
