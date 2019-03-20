@@ -627,14 +627,29 @@ class Camera(CameraTemplate):
         self.triggerMode = "off"
         max_iter = 100
         iter = 0
+        # Auto exposure gets stuck if the border values are reached,
+        # but further adjustments are necessary
+        limits = (self.device.ExposureAutoMin, self.device.ExposureAutoMax)
+        limit_cnt = 0
+        last_exposure = -1
+
+        self.device.runFeatureCommand("AcquisitionStart")
         while self.device.ExposureAuto != "Off":
+            if last_exposure in limits:
+                limit_cnt += 1
+            else:
+                limit_cnt = 0
             try:
                 frame.queueFrameCapture()
             except Exception:
                 pass
-            self.device.runFeatureCommand("AcquisitionStart")
             frame.waitFrameCapture(1000)
             iter += 1
+            last_exposure = self.device.ExposureTimeAbs
+            if limit_cnt > 5:
+                self.logger.info("Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
+                    exposure=last_exposure))
+                self.device.ExposureAuto = "Off"
             if iter >= max_iter:
                 try:
                     raise TimeoutError("Timeout while setting auto exposure!")
