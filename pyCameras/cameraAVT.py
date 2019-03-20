@@ -423,8 +423,9 @@ class Camera(CameraTemplate):
         self.device.startCapture()
         frame.queueFrameCapture()
         self.device.runFeatureCommand('AcquisitionStart')
+
+        frame.waitFrameCapture(1000)
         self.device.runFeatureCommand('AcquisitionStop')
-        frame.waitFrameCapture()
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
