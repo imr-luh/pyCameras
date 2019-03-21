@@ -423,8 +423,9 @@ class Camera(CameraTemplate):
         self.device.startCapture()
         frame.queueFrameCapture()
         self.device.runFeatureCommand('AcquisitionStart')
+
+        frame.waitFrameCapture(1000)
         self.device.runFeatureCommand('AcquisitionStop')
-        frame.waitFrameCapture()
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
@@ -603,6 +604,70 @@ class Camera(CameraTemplate):
             self.device.ExposureTimeAbs = microns
         return self.device.ExposureTimeAbs
 
+    def autoExposure(self):
+        """
+        Automatically sets the exposure time of the camera ONCE.
+        Old exposure setting is lost during the process!
+
+        Returns
+        -------
+        exposure : int
+            The exposure time in microseconds after auto exposure
+        """
+        self.logger.debug("Starting automatic exposure control")
+        self.device.ExposureAuto = "Once"
+        # Save trigger settings and activate acquisition until
+        # auto exposure has settled
+        triggerMode_buffer = self.triggerMode
+
+        frame = self.device.getFrame()
+        frame.announceFrame()
+
+        self.device.startCapture()
+
+        self.triggerMode = "off"
+        max_iter = 100
+        iter = 0
+        # Auto exposure gets stuck if the border values are reached,
+        # but further adjustments are necessary
+        limits = (self.device.ExposureAutoMin, self.device.ExposureAutoMax)
+        limit_cnt = 0
+        last_exposure = -1
+
+        self.device.runFeatureCommand("AcquisitionStart")
+        while self.device.ExposureAuto != "Off":
+            if last_exposure in limits:
+                limit_cnt += 1
+            else:
+                limit_cnt = 0
+            try:
+                frame.queueFrameCapture()
+            except Exception:
+                pass
+            frame.waitFrameCapture(1000)
+            iter += 1
+            last_exposure = self.device.ExposureTimeAbs
+            if limit_cnt > 5:
+                self.logger.info("Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
+                    exposure=last_exposure))
+                self.device.ExposureAuto = "Off"
+            if iter >= max_iter:
+                try:
+                    raise TimeoutError("Timeout while setting auto exposure!")
+                except NameError:
+                    # Python 2 compatible Error
+                    raise Exception("Timeout while setting auto exposure!")
+
+        # Cleanup
+        self.device.runFeatureCommand("AcquisitionStop")
+        self._cleanUp()
+
+        self.triggerMode = triggerMode_buffer
+        self.logger.debug("Set exposure time to {exposure}"
+                          "".format(exposure=self.device.ExposureTimeAbs))
+
+        return self.device.ExposureTimeAbs
+
     def setResolution(self, resolution=None):
         """
         Set the resolution of the camera to the given values in pixels or read
@@ -745,10 +810,16 @@ if __name__ == '__main__':
               'Handle': handle[0],
               'Bad_input': 'Yo Mama is fat'}
     # Use one of source entries here:
-    # cam_device = contr.getDevice(source['Handle_list'])
+    cam_device = contr.getDevice(source['Handle_list'])
     # cam_device = contr.getDevice('DEV_000F314D941E')
 
-    cam_device = Camera('DEV_000F314D941E')
+    # Test auto exposure
+    cam_device = Camera('DEV_000F314E2C01')
+
+    cam_device.exposure = 400000
+    print("Before: ", cam_device.exposure)
+    exposure = cam_device.autoExposure()
+    print("After: ", cam_device.exposure)
 
     # Listing features of device
     if bListFeatures:
