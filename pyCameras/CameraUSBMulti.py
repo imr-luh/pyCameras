@@ -144,9 +144,6 @@ class Camera(CameraTemplate):
 
             image = np.asanyarray(frame.get_data())
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # rows, cols = gray.shape
-            # M = cv2.getRotationMatrix2D((cols / 2, rows / 2), 20, 1)
-
             array = np.asanyarray(gray)
             self.logger.debug('Brightness is {br}'
                               ''.format(br=np.mean(array)))
@@ -154,11 +151,16 @@ class Camera(CameraTemplate):
             # calculates the mean brightness of the image. If the image is to dark, it is assumend, that the projector did not je, or not anymore fire and
             # the image is not appended to the imageData stack
             if np.mean(array)>3.5:
-                # array_rot = cv2.warpAffine(array, M, (cols, rows))
-                # self.imgData.append(array_rot[60:1060,500:1500])
-                # self.imgData.append(array_rot)
-                self.imgData.append(array[60:1060,500:1500])
-                # self.imgData.append(array)
+                # flipimg = cv2.flip(array, -1)
+                # flipimg = flipimg[80:1080, 500:1500]
+                # flipimg = flipimg[40:1040, 500:1500]
+                # flipimag[500,:]=0
+                # flipimg[:,500]=0
+                # flipimg = array[40:1040, 500:1500]
+                flipimg = array[90:990, 550:1450]
+
+                self.imgData.append(flipimg)
+
 
         if len(self.imgData)<self._expected_images:
             raise Exception("Number of captured images below number of expected_images. Try lowering the brightness threshold!")
@@ -166,11 +168,13 @@ class Camera(CameraTemplate):
         return self.imgData
 
     def saveimages(self,imgData):
-        self.logger.debug('saveimges')
+
         for c, value in enumerate(imgData, 1):
             img_name = "images/image_" + str(c) + ".png"
             # print(np.mean(value))
             cv2.imwrite(img_name, value)
+        self.logger.debug('saved {num} images '
+                          ''.format(num=len(imgData)))
 
     def getFrame(self, *args, **kwargs):
         frames = self.pipeline.wait_for_frames()
@@ -199,7 +203,7 @@ class Camera(CameraTemplate):
 
         self.logger.debug('Prepare recording {num} images'
                           ''.format(num=self._expected_images))
-        time.sleep(0.6)
+        time.sleep(1)
 
 
     def listFeatures(self):
@@ -307,10 +311,24 @@ class Camera(CameraTemplate):
                                   '{e}'.format(e=e))
 
 
+    def prepare_live(self):
+        self.init_sensors()
+        print(self.Exposure)
+        # self.color_sensor.set_option(rs.option.exposure, self.Exposure)
+
+        self.color_sensor.set_option(rs.option.exposure, 300)
+
     def getImage(self):
         frame = self.getFrame()
-        image = np.asanyarray(frame.get_data())
-        return image
+        array = np.asanyarray(frame.get_data())
+        # flipimg = cv2.flip(array,-1)
+        # flipimg = flipimg[80:1080, 500:1500]
+        # flipimg = flipimg[40:1040, 500:1500]
+        # flipimg[500, :] = 0
+        # flipimg[:, 500] = 0
+        flipimg = array[90:990, 550:1450]
+
+        return flipimg
 
 
     def init_sensors(self):
