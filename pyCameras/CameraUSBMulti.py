@@ -140,25 +140,25 @@ class Camera(CameraTemplate):
 
 
     def convert_to_image(self,framelist):
-        for frame in framelist:
+        brightness = []
+        arraylist = []
 
+        for frame in framelist:
             image = np.asanyarray(frame.get_data())
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             array = np.asanyarray(gray)
+            brightness.append(np.mean(array))
+            arraylist.append(array)
+        th = np.mean(brightness[:])
+        self.logger.debug('Mean brightness is {br}'
+                          ''.format(br=th))
+
+        for array in arraylist:
             self.logger.debug('Brightness is {br}'
                               ''.format(br=np.mean(array)))
-            # print(np.mean(array))
-            # calculates the mean brightness of the image. If the image is to dark, it is assumend, that the projector did not je, or not anymore fire and
-            # the image is not appended to the imageData stack
-            if np.mean(array)>3.5:
-                # flipimg = cv2.flip(array, -1)
-                # flipimg = flipimg[80:1080, 500:1500]
-                # flipimg = flipimg[40:1040, 500:1500]
-                # flipimag[500,:]=0
-                # flipimg[:,500]=0
-                # flipimg = array[40:1040, 500:1500]
-                flipimg = array[90:990, 550:1450]
 
+            if np.mean(array)>th:
+                flipimg = array[90:990, 550:1450]
                 self.imgData.append(flipimg)
 
 
