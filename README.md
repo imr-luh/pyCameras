@@ -84,5 +84,5 @@ To install, download the desired version for your architecture with the correspo
 
 To install Harvester simply run (tested for python3)
 ```bash
-pip3 install harvester --user
+pip3 install harvesters --user
 ```
