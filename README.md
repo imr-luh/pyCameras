@@ -1,6 +1,6 @@
 # pyCameras
 
-This repository contains a selection of Python Camera implementations for different cameras used at the IMR.
+This repository contains a selection of Python Camera implementations for different cameras used at the IMR. This is a mirror of gitlab.
 The idea is that all cameras follow the same interface and are therefore easily interchangeable.
 The interface is defined in `pyCameras/cameraTemplate.py`.
 All new camera implementations should inherit from the `CameraTemplate` base class and implement it's abstract functions (those that raise `NotImplementedError`).
