@@ -33,7 +33,7 @@ __status__ = "Development"
 import abc
 import logging
 
-from imrpy.utils.settingsHandler import SettingsHandler
+from pyCameras.utils import SettingsHandler
 
 LOGGING_LEVEL = None
 
