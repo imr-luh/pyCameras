@@ -1,6 +1,10 @@
 # pyCameras
 
-This repository contains a selection of Python Camera implementations for different cameras used at the IMR. This is a mirror of gitlab.
+[![Repo on GitLab](https://img.shields.io/badge/repo-GitLab-00519e.svg)](https://gitlab.imr.uni-hannover.de/imr/pyCameras)
+
+This repository contains a selection of Python Camera implementations for different cameras used at the IMR.
+This is a mirror of the internal gitlab server of the Institute of [Measurement and Automatic Control](https://imr.uni-hannover.de) which is continously updated.
+Internal development will proceed on that server and can be viewed [here](https://gitlab.imr.uni-hannover.de/imr/pyCameras).
 The idea is that all cameras follow the same interface and are therefore easily interchangeable.
 The interface is defined in `pyCameras/cameraTemplate.py`.
 All new camera implementations should inherit from the `CameraTemplate` base class and implement it's abstract functions (those that raise `NotImplementedError`).
