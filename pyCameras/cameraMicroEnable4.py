@@ -28,7 +28,7 @@ try:
                                  'SDKWrapper/PythonWrapper/python35/bin/'))
 
     import SiSoPyInterface as s
-except ImportError:
+except (ImportError, KeyError):
     raise ImportError('SiSo module not loaded successfully')
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
