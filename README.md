@@ -56,7 +56,7 @@ Add `--user` to apply the installation only to the current user.
 
 ### Basler Cameras
 
-The Basler camera interface uses a forked version of the [PyPylon](https://gitlab.imr.uni-hannover.de/kroeger/PyPylon) backend.
+The Basler camera interface uses the [official pylon wrapper named pypylon provided by Basler](https://github.com/basler/pypylon).
 
 ### USB Cameras
 
