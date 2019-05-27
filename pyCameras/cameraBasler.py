@@ -114,7 +114,7 @@ class Camera(CameraTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self._expected_triggered_images = 0
-        self._timeout = 200
+        self._timeout = 2000
         self.registerFeatures()
         self.openDevice()
 
