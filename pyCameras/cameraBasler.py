@@ -320,8 +320,19 @@ class Camera(CameraTemplate):
     def record(self):
         self.logger.debug('Recording {num} images'
                           ''.format(num=self._expected_triggered_images))
-        return list(self.device.grab_images(self._expected_triggered_images,
-                                            timeout=5000))
+        images = list()
+        self.device.StartGrabbingMax(self._expected_triggered_images)
+
+        while self.device.IsGrabbing():
+            grabResult = self.device.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+
+            # Image grabbed successfully?
+            if grabResult.GrabSucceeded():
+                images.append(grabResult.Array)
+            else:
+                self.logger.error("Error: ", grabResult.ErrorCode, grabResult.ErrorDescription)
+
+        return images
 
     def setTriggerMode(self, mode=None):
         """
@@ -364,7 +375,7 @@ class Camera(CameraTemplate):
             if mode.lower() == 'in':
                 self.device.TriggerMode = 'On'
                 self.device.TriggerSource = 'Line1'
-                self.device.TriggerSelector = 'FrameStart'
+                self.device.TriggerSelector = 'AcquisitionStart'
             elif mode.lower() == 'out':
                 # Not supported by Basler cameras (?)
                 # TODO: looks like Line2 and Line 3 can be configured as output
