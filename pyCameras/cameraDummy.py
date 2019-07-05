@@ -129,7 +129,7 @@ class Camera(CameraTemplate):
     def closeController():
         return 0
 
-    def _loadImages(self, imageDir=None, cvLoadFlags=cv2.IMREAD_GRAYSCALE):
+    def _loadImages(self, imageDir, cvLoadFlags=cv2.IMREAD_GRAYSCALE):
         """
         Load all image inside the given image_dir as grayscale and store them
         in self._images in sorted order.
@@ -147,22 +147,23 @@ class Camera(CameraTemplate):
             self.logger.info("No valid image path was specified. Using random image instead (Noisy Image).")
             self._images = [np.random.random((400, 400))]
             return
+        else:
+            self.logger.debug('Loading images in {image_dir}'
+                              ''.format(image_dir=imageDir))
 
-        self.logger.debug('Loading images in {image_dir}'
-                          ''.format(image_dir=imageDir))
+            extensions=['.png',
+                        '.jpg',
+                        '.jpeg',
+                        '.bmp']
 
-        extensions=['.png',
-                    '.jpg',
-                    '.jpeg',
-                    '.bmp']
+            images = sorted([image for image in os.listdir(imageDir) if
+                             os.path.splitext(image)[-1].lower() in extensions])
+            self.logger.debug('found the following images: {images}'
+                              ''.format(images=images))
+            for image in images:
+                self._images.append(cv2.imread(os.path.join(imageDir, image),
+                                               flags=cvLoadFlags))
 
-        images = sorted([image for image in os.listdir(imageDir) if
-                         os.path.splitext(image)[-1].lower() in extensions])
-        self.logger.debug('found the following images: {images}'
-                          ''.format(images=images))
-        for image in images:
-            self._images.append(cv2.imread(os.path.join(imageDir, image),
-                                           flags=cvLoadFlags))
         # Set resolution to image resolution (all images should have the same resolution)
         self.setResolution(self._images[0].shape[0:2])
 
