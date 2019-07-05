@@ -49,8 +49,8 @@ class Camera(CameraTemplate):
         self._curIndex = 0
         self._imageDir = imageDir
         self._resolution = (100, 100)
-        if isinstance(self._imageDir, str):
-            self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
+
+        self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
 
         # Variables to mimic behaviour of real cameras
         self._trigger = None
@@ -129,7 +129,7 @@ class Camera(CameraTemplate):
     def closeController():
         return 0
 
-    def _loadImages(self, imageDir, cvLoadFlags=cv2.IMREAD_GRAYSCALE):
+    def _loadImages(self, imageDir=None, cvLoadFlags=cv2.IMREAD_GRAYSCALE):
         """
         Load all image inside the given image_dir as grayscale and store them
         in self._images in sorted order.
@@ -142,6 +142,12 @@ class Camera(CameraTemplate):
         cvLoadFlags : cv2 imread flag
             Additional imread flags such as cv2.IMREAD_GRAYSCALE
         """
+
+        if not (isinstance(imageDir, str) and os.path.exists(imageDir)):
+            self.logger.info("No valid image path was specified. Using random image instead (Noisy Image).")
+            self._images = [np.random.random((400, 400))]
+            return
+
         self.logger.debug('Loading images in {image_dir}'
                           ''.format(image_dir=imageDir))
 
@@ -167,7 +173,10 @@ class Camera(CameraTemplate):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     devices = Camera.listDevices()
-    print(devices)
-    cam = Camera('/home/kroeger/kroeger/Fotos/Ellipsometer/2017-07-31')
-    print([img.sum() for img in cam.getImages(15)])
-    print(cam)
+    print("Available Devices: ", devices)
+
+    cam = Camera()
+    # cam = Camera("PATH_TO_YOUR_IMAGES")
+    img = cam.getImage()
+    cv2.imshow("cameraDummy image", img)
+    cv2.waitKey(0)
