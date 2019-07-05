@@ -5,6 +5,7 @@ __status__ = "Development"
 
 import logging
 import os
+import sys
 
 import cv2
 import numpy as np
@@ -48,9 +49,9 @@ class Camera(CameraTemplate):
         self._expectedImages = 0     # used by self.record
         self._curIndex = 0
         self._imageDir = imageDir
-        self._resolution = (100, 100)
-        if isinstance(self._imageDir, str):
-            self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
+        self._resolution = (500, 500)
+
+        self._loadImages(self._imageDir, cvLoadFlags=cvLoadFlags)
 
         # Variables to mimic behaviour of real cameras
         self._trigger = None
@@ -142,21 +143,60 @@ class Camera(CameraTemplate):
         cvLoadFlags : cv2 imread flag
             Additional imread flags such as cv2.IMREAD_GRAYSCALE
         """
-        self.logger.debug('Loading images in {image_dir}'
-                          ''.format(image_dir=imageDir))
+        if isinstance(imageDir, str):
+            if imageDir.startswith("~") and 'linux' in sys.platform.lower():
+                imageDir = os.path.expanduser(imageDir)
+            if os.path.exists(imageDir):
+                self.logger.debug('Loading images in {image_dir}'
+                                  ''.format(image_dir=imageDir))
 
-        extensions=['.png',
-                    '.jpg',
-                    '.jpeg',
-                    '.bmp']
+                extensions = ['.png',
+                              '.jpg',
+                              '.jpeg',
+                              '.bmp']
 
-        images = sorted([image for image in os.listdir(imageDir) if
-                         os.path.splitext(image)[-1].lower() in extensions])
-        self.logger.debug('found the following images: {images}'
-                          ''.format(images=images))
-        for image in images:
-            self._images.append(cv2.imread(os.path.join(imageDir, image),
-                                           flags=cvLoadFlags))
+                images = sorted([image for image in os.listdir(imageDir) if
+                                 os.path.splitext(image)[
+                                     -1].lower() in extensions])
+                if len(images) > 0:
+                    self.logger.debug('found the following images: {images}'
+                                      ''.format(images=images))
+                    for image in images:
+                        self._images.append(cv2.imread(os.path.join(imageDir, image),
+                                                       flags=cvLoadFlags))
+                else:
+                    self.logger.info(
+                        "No valid image path was specified. Using random image instead (Noisy Image).")
+                    self._images = list()
+                    for i in range(2):
+                        noisy_img = np.random.random(self.resolution)
+                        noisy_img = cv2.putText(noisy_img,
+                                                "No images found in path",
+                                                (10, self.resolution[1] // 2),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                                                (255, 255, 255),
+                                                lineType=cv2.LINE_AA,
+                                                thickness=2)
+                        self._images.append(noisy_img)
+            else:
+                self.logger.info(
+                    "No valid image path was specified. Using random image instead (Noisy Image).")
+                self._images = list()
+                for i in range(2):
+                    noisy_img = np.random.random(self.resolution)
+                    noisy_img = cv2.putText(noisy_img, "Invalid path",
+                                            (10, self.resolution[1] // 2),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                                            (255, 255, 255),
+                                            lineType=cv2.LINE_AA,
+                                            thickness=2)
+                    self._images.append(noisy_img)
+        else:
+            self.logger.info(
+                "No valid image path was specified. Using random image instead (Noisy Image).")
+            self._images = [np.random.random(self.resolution),
+                            np.random.random(self.resolution)]
+
         # Set resolution to image resolution (all images should have the same resolution)
         self.setResolution(self._images[0].shape[0:2])
 
@@ -167,7 +207,10 @@ class Camera(CameraTemplate):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     devices = Camera.listDevices()
-    print(devices)
-    cam = Camera('/home/kroeger/kroeger/Fotos/Ellipsometer/2017-07-31')
-    print([img.sum() for img in cam.getImages(15)])
-    print(cam)
+    print("Available Devices: ", devices)
+
+    cam = Camera()
+    # cam = Camera("PATH_TO_YOUR_IMAGES")
+    img = cam.getImage()
+    cv2.imshow("cameraDummy image", img)
+    cv2.waitKey(0)
