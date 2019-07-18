@@ -33,7 +33,7 @@ __status__ = "Development"
 import abc
 import logging
 
-from imrpy.misc.settingsHandler import SettingsHandler
+from imrpy.utils.settingsHandler import SettingsHandler
 
 LOGGING_LEVEL = None
 

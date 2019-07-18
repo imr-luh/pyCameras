@@ -143,9 +143,12 @@ class Camera(CameraTemplate):
         brightness = []
         arraylist = []
 
-        for frame in framelist:
+        for c, frame in enumerate(framelist):
             image = np.asanyarray(frame.get_data())
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # gray = image
+            # img_name = "images/color_" + str(c) + ".png"
+            # cv2.imwrite(img_name, image)
             array = np.asanyarray(gray)
             brightness.append(np.mean(array))
             arraylist.append(array)
@@ -157,13 +160,15 @@ class Camera(CameraTemplate):
             self.logger.debug('Brightness is {br}'
                               ''.format(br=np.mean(array)))
 
-            if np.mean(array)>th:
+            if np.mean(array)>(0.9*th):
+            # if np.mean(array) > 19:
                 flipimg = array[90:990, 550:1450]
                 self.imgData.append(flipimg)
 
 
         if len(self.imgData)<self._expected_images:
-            raise Exception("Number of captured images below number of expected_images. Try lowering the brightness threshold!")
+            print("Number of images is",len(self.imgData))
+            raise Exception('Number of captured images below number of expected_images. Try lowering the brightness threshold!')
 
         return self.imgData
 
@@ -172,11 +177,13 @@ class Camera(CameraTemplate):
         for c, value in enumerate(imgData, 1):
             img_name = "images/image_" + str(c) + ".png"
             # print(np.mean(value))
+            # value = cv2.equalizeHist(value)
             cv2.imwrite(img_name, value)
         self.logger.debug('saved {num} images '
                           ''.format(num=len(imgData)))
 
     def getFrame(self, *args, **kwargs):
+        self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
         frames = self.pipeline.wait_for_frames()
         frame= frames.get_color_frame()
 
@@ -198,7 +205,9 @@ class Camera(CameraTemplate):
         self.imgData = []
         self._expected_images = num
         self.init_sensors()
+        print(self.Exposure)
         self.color_sensor.set_option(rs.option.exposure, self.Exposure)
+        # self.color_sensor.set_option(rs.option.exposure, 400)
 
 
         self.logger.debug('Prepare recording {num} images'
@@ -316,17 +325,20 @@ class Camera(CameraTemplate):
         print(self.Exposure)
         # self.color_sensor.set_option(rs.option.exposure, self.Exposure)
 
-        self.color_sensor.set_option(rs.option.exposure, 300)
+        # self.color_sensor.set_option(rs.option.exposure, 300)
+        self.color_sensor.set_option(rs.option.exposure, (self.Exposure)*0.02)
 
     def getImage(self):
         frame = self.getFrame()
+        # self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
         array = np.asanyarray(frame.get_data())
         # flipimg = cv2.flip(array,-1)
         # flipimg = flipimg[80:1080, 500:1500]
         # flipimg = flipimg[40:1040, 500:1500]
         # flipimg[500, :] = 0
         # flipimg[:, 500] = 0
-        flipimg = array[90:990, 550:1450]
+        # flipimg = array
+        flipimg = array[:, 400:1480]
 
         return flipimg
 
@@ -374,7 +386,7 @@ if __name__ == '__main__':
     import logging
     import cv2 as cv
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG)/home/wrangel/dev/usbCamera
     # logging.basicC/home/wrangel/dev/ownsplibonfig(level=logging.DEBUG)
     bListFeatures = False
     bLiveView = False
@@ -384,12 +396,26 @@ if __name__ == '__main__':
     cam = Camera(contr)
 
     cam.setTriggerMode('Out')
+    cam.color_sensor.set_option(rs.option.exposure, 400)
+
+    W = 800
+    img = cam.getImage()
+
+    height, width, depth = img.shape
+    print(height)
+    print(width)
+    print(depth),
+    imgScale = W / width
+    newX, newY = img.shape[1] * imgScale, img.shape[0] * imgScale
+
 
 
     while True:
 
         img = cam.getImage()
+        # newimg = cv2.resize(img, (int(newX), int(newY)))
         cv2.imshow('cam', img)
+
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()

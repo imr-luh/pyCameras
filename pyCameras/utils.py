@@ -7,7 +7,7 @@ import logging
 import pkgutil
 
 import pyCameras
-from imrpy.misc.imports import dynamic_import_class
+from imrpy.utils.imports import dynamic_import_class
 
 
 def listCameraImplementations():
