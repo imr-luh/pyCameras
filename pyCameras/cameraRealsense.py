@@ -9,6 +9,7 @@ import pyrealsense2 as rs
 import cv2
 import numpy as np
 import time
+from threading import Event
 import sys
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
@@ -138,27 +139,30 @@ class Camera(CameraTemplate):
         logging.basicConfig()
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
-        self.logger.debug(f'Intel Realsense Sensor {device_handle} is ready')
-
         self.device_handle = device_handle
 
         self.context = rs.context()
         self.devices = self.context.query_devices()
-
         #TODO Change this for multi realsense setup
-        self.devices = self.devices[0].query_sensors()
+        #TODO Here check for no connection
+        self.device = self.devices[0].query_sensors()[self.device_handle]
 
-        self.pipeline = rs.pipeline(ctx=self.context)
+        self.pipeline = rs.pipeline(self.context)
         self.pipeline_started = False
 
         self.config = rs.config()
-        self.device = self.devices[self.device_handle]
 
         self.stream_profile = self.device.get_stream_profiles()[0]
 
         self.profile = rs.pipeline_profile
 
+        self.img_data = []
+        self._expected_images = 0
+        self.framerate = 6
+
         self.openDevice()
+        self.TriggerMode = None
+
 
     @staticmethod
     def listDevices():
@@ -178,8 +182,6 @@ class Camera(CameraTemplate):
         :return: self.pipeline.start(self.config) : pipeline_profile_object
         """
 
-        self.logger.info(f"Start displaying Color profile {self.stream_profile}")
-
         if self.stream_profile is None:
             #Todo Change here for specifig streamprofiles
             pass
@@ -193,12 +195,14 @@ class Camera(CameraTemplate):
 
         #TODO Change this for multicamera setup
         if len(self.context.query_devices()[0].query_sensors()) == 2:
-            self.config.enable_stream(stream_type, int(resolution[0]), int(resolution[1]), format, fps)
-        else:
-            self.config.enable_stream(rs.stream.depth, 480, 270, rs.format.z16, 15)
+            # self.config.enable_stream(stream_type, int(resolution[0]), int(resolution[1]), format, fps)
+            self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 6)
+            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1280, 720, rs.format.bgr8, 6}")
 
-        self.logger.info(f"Start displaying Depth profile {rs.stream.depth, 480, 270, rs.format.z16, 15}")
 
+        self.config.enable_stream(rs.stream.depth, 480, 270, rs.format.z16, 6)
+
+        self.logger.info(f"Start displaying Depth profile {rs.stream.depth, 480, 270, rs.format.z16, 6}")
         self.profile = self.pipeline.start(self.config)
         self.pipeline_started = True
 
@@ -217,6 +221,8 @@ class Camera(CameraTemplate):
 
     def get_board_temperature(self):
 
+        """Get current board and depth sensor temperature"""
+
         depth_sensor = self.profile.get_device().first_depth_sensor()
 
         # Get device temperature
@@ -226,10 +232,10 @@ class Camera(CameraTemplate):
             self.logger.info(f"Vision Processing Board (ASIC) temperature {depth_asic_temperature}°C")
 
             if 70 > int(depth_asic_temperature) > 60:
-                self.logger.warning(f"Vision Processing Board (ASIC) temperature is over 40°C ({depth_asic_temperature})")
+                self.logger.warning(f"Vision Processing Board (ASIC) temperature is over 60°C ({depth_asic_temperature})")
 
             if int(depth_asic_temperature) >= 70:
-                self.logger.error(f"Vision Processing Board (ASIC) temperature is over 50°C ({depth_asic_temperature})")
+                self.logger.error(f"Vision Processing Board (ASIC) temperature is over 70°C ({depth_asic_temperature})")
                 self.closeDevice()
                 raise SystemExit
 
@@ -238,11 +244,11 @@ class Camera(CameraTemplate):
             depth_projector_temperature = depth_sensor.get_option(rs.option.projector_temperature)
             self.logger.info(f"Depth Sensor (Projector) temperature {depth_projector_temperature}°C")
 
-            if 70 > int(depth_projector_temperature) > 60:
-                self.logger.warning(f"Depth Sensor (Projector) temperature is over 40°C ({depth_projector_temperature})")
+            if 110 > int(depth_projector_temperature) > 80:
+                self.logger.warning(f"Depth Sensor (Projector) temperature is over 60°C ({depth_projector_temperature})")
 
-            if int(depth_projector_temperature) >= 70:
-                self.logger.error(f"Depth Sensor (Projector) temperature is over 50°C ({depth_projector_temperature})")
+            if int(depth_projector_temperature) >= 110:
+                self.logger.error(f"Depth Sensor (Projector) temperature is over 110°C ({depth_projector_temperature})")
                 self.closeDevice()
                 raise SystemExit
 
@@ -254,40 +260,67 @@ class Camera(CameraTemplate):
 
         """
 
-        depth_sensor = self.devices[0]
+        depth_sensor = self.profile.get_device().first_depth_sensor()
 
-        if mode == r'in':
+        if mode is None:
+            return self.TriggerMode
+
+        elif mode == r'In':
             if depth_sensor.supports(rs.option.output_trigger_enabled):
                 depth_sensor.set_option(rs.option.output_trigger_enabled, 1.0)
                 self.logger.info("Camera In Trigger on")
-                time.sleep(0.5)
+                self.TriggerMode = mode
+            else:
+                self.logger.warning(f"Failed to set Triggermode {mode}")
+
             if depth_sensor.supports(rs.option.inter_cam_sync_mode):
                 depth_sensor.set_option(rs.option.inter_cam_sync_mode, 2.0)
                 self.logger.info("In Camera in inter cam mode Slave ")
-                time.sleep(0.5)
 
-        elif mode == r'out':
+        elif mode == r'Out':
             if depth_sensor.supports(rs.option.output_trigger_enabled):
                 depth_sensor.set_option(rs.option.output_trigger_enabled, 1.0)
                 self.logger.info("Camera Out Trigger on")
-                time.sleep(0.5)
+                self.TriggerMode = mode
+            else:
+                self.logger.warning(f"Failed to set Triggermode {mode}")
+
             if depth_sensor.supports(rs.option.inter_cam_sync_mode):
                 depth_sensor.set_option(rs.option.inter_cam_sync_mode, 1.0)
                 self.logger.info("Out Camera in inter cam mode Master ")
-                time.sleep(0.5)
 
-        elif mode == r'off':
+        elif mode == r'Off':
             if depth_sensor.supports(rs.option.output_trigger_enabled):
                 depth_sensor.set_option(rs.option.output_trigger_enabled, 0.0)
                 self.logger.info("Camera Trigger Off")
-                time.sleep(0.5)
+                self.TriggerMode = mode
+            else:
+                self.logger.warning(f"Failed to set Triggermode {mode}")
+
             if depth_sensor.supports(rs.option.inter_cam_sync_mode):
                 depth_sensor.set_option(rs.option.inter_cam_sync_mode, 0.0)
                 self.logger.info("Inter Camera mode default")
-                time.sleep(0.5)
 
-        else:
-            print("error, wrong value")
+        return self.TriggerMode
+
+    def prepareRecording(self, num):
+        if self.pipeline_started:
+            self.pipeline.stop()
+
+        self.img_data = []
+        self._expected_images = num
+
+        self.logger.info(f"Prepare recording {num} images")
+
+    def record(self):
+        self.openDevice()
+        self.logger.info(f"Recording {self._expected_images}")
+
+        temp_img_data = []
+        for _ in range(self._expected_images):
+            self.img_data.append(self.getImage())
+
+        return self.img_data
 
     def getImage(self):
         """
@@ -296,22 +329,32 @@ class Camera(CameraTemplate):
         :return: image : np.ndarray
             Image of active sensor from realsense device
         """
-        frames = self.pipeline.wait_for_frames()
 
+        if self.pipeline_started is False:
+            self.openDevice()
+
+        # frames = self.pipeline.wait_for_frames()
         color_image = None
         depth_image = None
 
-        if 'Color' in str(self.pipeline.get_active_profile().get_streams()):
-            img_bytes = frames.get_color_frame()
-            color_image = np.asanyarray(img_bytes.get_data())
+        frames = rs.composite_frame(rs.frame())
 
-        if 'Depth' in str(self.pipeline.get_active_profile().get_streams()):
-            depth_img_bytes = frames.get_depth_frame()
-            depth_image = np.asanyarray(depth_img_bytes.get_data())
+        i = 0
+        while color_image is None:
+            if self.pipeline.poll_for_frames(frames):
+                img_bytes = frames.get_color_frame()
+                color_image = np.asanyarray(img_bytes.get_data())
+                color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+                i += 1
+        print(f"Iterations passed {i}")
+        # if 'Color' in str(self.pipeline.get_active_profile().get_streams()):
 
 
+        # if 'Depth' in str(self.pipeline.get_active_profile().get_streams()):
+        #     depth_img_bytes = frames.get_depth_frame()
+        #     depth_image = np.asanyarray(depth_img_bytes.get_data())
 
-        return color_image, depth_image
+        return color_image
 
 
     def setExposureMicrons(self, microns=None):
@@ -331,7 +374,11 @@ class Camera(CameraTemplate):
                     The exposure time in microseconds after applying the passed value
                 """
 
-        self.device.set_option(rs.option.exposure, microns)
+        if microns is not None:
+            self.logger.debug(f'Setting exposure time to {microns}us')
+            self.device = self.profile.get_device().query_sensors()[1]
+            self.device.set_option(rs.option.exposure, microns)
+        return microns
 
     def setResolution(self, resolution=None):
         """
@@ -349,12 +396,11 @@ class Camera(CameraTemplate):
         resolution : tuple
             The set camera resolution after applying the passed value
         """
-
         if self.pipeline_started:
             self.pipeline.stop()
             self.pipeline_started = False
 
-        self.device = self.devices[self.device_handle]
+        # self.device = self.devices[self.device_handle]
 
         self.stream_profile = self.device.get_stream_profiles()
         # print(self.stream_profile)
@@ -373,7 +419,23 @@ class Camera(CameraTemplate):
 
         #TODO change this hardcoded profile to fps and etc
         self.stream_profile = self.stream_profile[12]
-        self.openDevice()
+        # self.openDevice()
+
+        #TODO return resolution
+        return 1280, 720
+
+    def setFps(self):
+        pass
+
+    def set_laser_off(self):
+
+        depth_sensor = self.profile.get_device().first_depth_sensor()
+
+        if depth_sensor.supports(rs.option.laser_power):
+            depth_sensor.set_option(rs.option.laser_power, 0)
+            self.logger.info("Setting Laser off")
+        else:
+            self.logger.info("Setting Laser off is not possible")
 
     def get_sensor_options(self, sensor=None):
         self.logger.info("Sensor supports following options:")
@@ -415,18 +477,20 @@ if __name__ == '__main__':
 
     # device_index = 1
     # if device_index <= len(available_devices):
-    cam = Camera(0)
+    cam = Camera(1)
     # cv2.namedWindow('Color Image', cv2.WINDOW_AUTOSIZE)
     # cv2.namedWindow('Depth Image', cv2.WINDOW_AUTOSIZE)
+    cam.set_laser_off()
 
-    cam.setResolution((640, 480))
+    #cam.setResolution((640, 480))
     # cam.setExposureMicrons()
     cam.get_board_temperature()
     cam.setTriggerMode("out")
+    cam.setExposureMicrons(10000)
     #cam.get_sensor_options()
     index = 0
     while True:
-        color_img, depth_img = cam.getImage()
+        color_img = cam.getImage()
 
         if index == 50:
             cam.get_board_temperature()
@@ -435,9 +499,10 @@ if __name__ == '__main__':
         index += 1
 
         if color_img is not None:
-            cv2.imshow('Color Image', color_img)
-        if depth_img is not None:
-            cv2.imshow('Depth Image', depth_img)
+            if color_img.shape[0] > 640:
+                cv2.imshow('Color Image', cv2.resize(color_img, (640, 480)))
+        # if depth_img is not None:
+        #     cv2.imshow('Depth Image', depth_img)
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()
