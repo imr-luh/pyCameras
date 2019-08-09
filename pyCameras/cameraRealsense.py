@@ -11,6 +11,7 @@ import numpy as np
 import time
 from threading import Event
 import sys
+import copy
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
@@ -143,6 +144,7 @@ class Camera(CameraTemplate):
 
         self.context = rs.context()
         self.devices = self.context.query_devices()
+        self.pipeline_started = False
         if len(self.devices) == 0:
             raise ConnectionError
         #TODO Change this for multi realsense setup
@@ -151,7 +153,6 @@ class Camera(CameraTemplate):
         self.device = self.devices[0].query_sensors()[self.device_handle]
 
         self.pipeline = rs.pipeline(self.context)
-        self.pipeline_started = False
 
         self.config = rs.config()
 
@@ -196,13 +197,13 @@ class Camera(CameraTemplate):
             format = self.stream_profile.format()
             fps = self.stream_profile.fps()
 
-            resolution = str(self.stream_profile).rsplit(" ", 3)[0].rsplit(" ", 1)[1].rsplit("x")
+            # resolution = str(self.stream_profile).rsplit(" ", 3)[0].rsplit(" ", 1)[1].rsplit("x")
 
         #TODO Change this for multicamera setup
         if len(self.context.query_devices()[0].query_sensors()) == 2:
             # self.config.enable_stream(stream_type, int(resolution[0]), int(resolution[1]), format, fps)
-            self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 6)
-            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1280, 720, rs.format.bgr8, 6}")
+            self.config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8, 6)
+            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1920, 1080, rs.format.bgr8, 6}")
 
 
         self.config.enable_stream(rs.stream.depth, 480, 270, rs.format.z16, 6)
@@ -318,7 +319,7 @@ class Camera(CameraTemplate):
 
         self.openDevice()
 
-        self._expected_images = num
+        self._expected_images = num + 2
 
         self.logger.info(f"Prepare recording {num} images")
 
@@ -326,30 +327,25 @@ class Camera(CameraTemplate):
     def record(self):
         self.logger.info(f"Recording {self._expected_images}")
 
+        if self.pipeline_started is False:
+            self.openDevice()
+
         self.img_data = []
+        img_bytes = []
+        color_img = None
+
+        for sensor in self.profile.get_device().query_sensors():
+            sensor.set_option(rs.option.frames_queue_size, 0)
+
         for _ in range(self._expected_images):
-            self.img_data.append(self.getImage())
+            frame = self.pipeline.wait_for_frames()
+            img_bytes = frame.get_color_frame()
+            color_image = np.asanyarray(img_bytes.get_data())
+            color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+            self.img_data.append(color_image)
 
-        return self.img_data
-
-    def poll_frames(self):
-
-        frames = {}
-        streams = self.profile.get_streams()
-
-        frameset = rs.composite_frame(rs.frame())
-
-        self.pipeline.poll_for_frames(frameset)
-
-        if frameset.size() == len(streams):
-            frames[0] = {}
-            for stream in streams:
-                if rs.stream.color == stream.stream_type():
-                    frame = frameset.first_or_default(stream.stream_index())
-                    key_ = (stream.stream_type(), stream.stream_index())
-
-                frames[0][key_] = frame
-        return frames
+        self.closeDevice()
+        return copy.deepcopy(self.img_data)
 
     def getImage(self):
         """
@@ -362,35 +358,10 @@ class Camera(CameraTemplate):
         if self.pipeline_started is False:
             self.openDevice()
 
-        # frames = self.poll_frames()
         frames = self.pipeline.wait_for_frames()
-        # frames.get_depth_frame() is a 640x360 depth image
-
-        align_to = rs.stream.color
-        align = rs.align(align_to)
-        # Align the depth frame to color frame
-        aligned_frames = align.process(frames)
-
-        img_bytes = aligned_frames.get_color_frame()
+        img_bytes = frames.get_color_frame()
         color_image = np.asanyarray(img_bytes.get_data())
         color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-
-
-        #
-        # i = 0
-        # while color_image is None:
-        #     if self.pipeline.poll_for_frames():
-        #         img_bytes = frames.get_color_frame()
-        #         color_image = np.asanyarray(img_bytes.get_data())
-        #         color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        #         i += 1
-        # print(f"Iterations passed {i}")
-        # # if 'Color' in str(self.pipeline.get_active_profile().get_streams()):
-
-
-        # if 'Depth' in str(self.pipeline.get_active_profile().get_streams()):
-        #     depth_img_bytes = frames.get_depth_frame()
-        #     depth_image = np.asanyarray(depth_img_bytes.get_data())
 
         return color_image
 
@@ -415,6 +386,7 @@ class Camera(CameraTemplate):
         if microns is not None:
             self.logger.debug(f'Setting exposure time to {microns}us')
             self.device = self.profile.get_device().query_sensors()[1]
+            print(self.device.get_option(rs.option.exposure))
             self.device.set_option(rs.option.exposure, microns)
         return microns
 
@@ -460,7 +432,7 @@ class Camera(CameraTemplate):
         # self.openDevice()
 
         #TODO return resolution
-        return 1280, 720
+        return 1920, 1080
 
     def setFps(self):
         pass
