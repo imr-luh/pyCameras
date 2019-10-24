@@ -77,6 +77,8 @@ class Camera(CameraTemplate):
         self.Width = 1920
         self.Height = 1080
         self.framerate = 6
+        self.pipeline_started = False
+        self.Exposure = 1000
 
         self.framelist=[]
         self.imgData = []
@@ -101,6 +103,8 @@ class Camera(CameraTemplate):
         # Open device and activate freerun mode
         self.openDevice()
         self.TriggerMode = None
+        self.setTriggerMode(None)
+        self.logger.debug('Camera initilised')
 
 
 
@@ -136,7 +140,7 @@ class Camera(CameraTemplate):
     def getFrames(self, *args, **kwargs):
         #records expected images +5, because the projector need some (uncertain) time to respond after the start of the camera pipeline.
         # the additional images are removed in the "convert_to_image" function based on their brightness
-        return(self.getFrame() for _ in range(self._expected_images+5))
+        return(self.getFrame() for _ in range(self._expected_images+10))
 
 
     def convert_to_image(self,framelist):
@@ -163,6 +167,8 @@ class Camera(CameraTemplate):
             if np.mean(array)>(0.9*th):
             # if np.mean(array) > 19:
                 flipimg = array[90:990, 550:1450]
+            #     flipimg = array[:, 450:1530]
+            # flipimg = array[20:1060, 470:1510]
                 self.imgData.append(flipimg)
 
 
@@ -184,16 +190,23 @@ class Camera(CameraTemplate):
 
     def getFrame(self, *args, **kwargs):
         self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
+        # self.depth_sensor.set_option(rs.option.exposure, (self.Exposure))
         frames = self.pipeline.wait_for_frames()
+
         frame= frames.get_color_frame()
 
         return frame
 
 
     def record(self):
+        time.sleep(3)
         self.logger.debug('Recording {num} images'
                           ''.format(num=self._expected_images))
         self.depth_sensor.set_option(rs.option.output_trigger_enabled, 1.0)
+        # self.depth_sensor.set_option(rs.option.output_trigger_enabled, 0.0)
+
+
+
         framelist = self.getFrames()
         self.imgData = self.convert_to_image(framelist)
         self.saveimages(self.imgData)
@@ -205,11 +218,11 @@ class Camera(CameraTemplate):
         self.imgData = []
         self._expected_images = num
         self.init_sensors()
-        print(self.Exposure)
-        self.color_sensor.set_option(rs.option.exposure, self.Exposure)
-        # self.color_sensor.set_option(rs.option.exposure, 400)
 
+        self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
+        self.depth_sensor.set_option(rs.option.exposure, (self.Exposure))
 
+        self.setTriggerMode('Out')
         self.logger.debug('Prepare recording {num} images'
                           ''.format(num=self._expected_images))
         time.sleep(1)
@@ -258,7 +271,9 @@ class Camera(CameraTemplate):
 
 
     def stop(self):
-        self.pipeline.stop()
+        if self.pipeline_started:
+            self.pipeline.stop()
+            self.pipeline_started = False
         self.config.disable_all_streams()
         self.stream_enabled = False
 
@@ -267,6 +282,7 @@ class Camera(CameraTemplate):
     def setTriggerMode(self, mode=None):
 
         if mode == 'Out':
+
             if self.depth_sensor.supports(rs.option.output_trigger_enabled):
                 self.depth_sensor.set_option(rs.option.output_trigger_enabled, 0.0)
 
@@ -322,15 +338,20 @@ class Camera(CameraTemplate):
 
     def prepare_live(self):
         self.init_sensors()
-        print(self.Exposure)
-        # self.color_sensor.set_option(rs.option.exposure, self.Exposure)
+        self.setTriggerMode('Off')
 
-        # self.color_sensor.set_option(rs.option.exposure, 300)
-        self.color_sensor.set_option(rs.option.exposure, (self.Exposure)*0.02)
+
+
+        # self.color_sensor.set_option(rs.option.exposure, (self.Exposure)*0.02)
+        # self.depth_sensor.set_option(rs.option.exposure, (self.Exposure) * 0.02)
+
 
     def getImage(self):
         frame = self.getFrame()
-        # self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
+        # print(self._expected_images)
+        self.color_sensor.set_option(rs.option.exposure, (self.Exposure))
+        self.depth_sensor.set_option(rs.option.exposure, (self.Exposure))
+
         array = np.asanyarray(frame.get_data())
         # flipimg = cv2.flip(array,-1)
         # flipimg = flipimg[80:1080, 500:1500]
@@ -338,7 +359,10 @@ class Camera(CameraTemplate):
         # flipimg[500, :] = 0
         # flipimg[:, 500] = 0
         # flipimg = array
-        flipimg = array[:, 400:1480]
+        # flipimg = array[:, 400:1480]
+        # flipimg = array[20:1060, 470:1510]
+        flipimg = array[90:990, 550:1450]
+        # print(np.mean(flipimg))
 
         return flipimg
 
@@ -355,9 +379,21 @@ class Camera(CameraTemplate):
 
         self.config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8,
                                   self.framerate)
+        # self.profile = self.pipeline.stop(self.config)
+
+        if self.pipeline_started:
+           self.pipeline.stop()
+           self.pipeline_started = False
+
         self.profile = self.pipeline.start(self.config)
+        self.pipeline_started =True
+
+
         self.dev = self.profile.get_device()
+
+        print(self.dev.query_sensors()[0])
         self.depth_sensor = self.dev.query_sensors()[0]
+        print("Deph Sensor:",self.depth_sensor)
         self.color_sensor = self.dev.query_sensors()[1]
 
 
@@ -386,8 +422,9 @@ if __name__ == '__main__':
     import logging
     import cv2 as cv
 
-    logging.basicConfig(level=logging.DEBUG)/home/wrangel/dev/usbCamera
+    # logging.basicConfig(level=logging.DEBUG)/home/wrangel/dev/usbCamera
     # logging.basicC/home/wrangel/dev/ownsplibonfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG)
     bListFeatures = False
     bLiveView = False
 
@@ -395,11 +432,18 @@ if __name__ == '__main__':
 
     cam = Camera(contr)
 
-    cam.setTriggerMode('Out')
-    cam.color_sensor.set_option(rs.option.exposure, 400)
+    # cam.setTriggerMode('Out')
+    cam.Exposure =2500
+    # cam.color_sensor.set_option(rs.option.exposure, 400)
 
     W = 800
+
+
+    cam.init_sensors()
+    cam.prepare_live()
     img = cam.getImage()
+    # cam.pipeline.start()
+
 
     height, width, depth = img.shape
     print(height)
@@ -408,13 +452,17 @@ if __name__ == '__main__':
     imgScale = W / width
     newX, newY = img.shape[1] * imgScale, img.shape[0] * imgScale
 
-
-
+    cv2.namedWindow("cam", cv2.WND_PROP_FULLSCREEN)
+    cv2.setWindowProperty("cam", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     while True:
 
         img = cam.getImage()
+        img[int(height/2)-2:int(height/2)+2,:,0]=100
+        img[:,int(width / 2) - 2:int(width / 2) + 2, 0] = 100
+
         # newimg = cv2.resize(img, (int(newX), int(newY)))
         cv2.imshow('cam', img)
+
 
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
