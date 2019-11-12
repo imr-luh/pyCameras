@@ -66,10 +66,10 @@ class Camera(CameraTemplate):
     self.device = None
 
 
-  def recv_live(self):
-    self.device_handle.send_command("live", 5)
+  def recv_live(self,number):
+    self.device_handle.send_command("live", number)
     time.sleep(4)
-    cap = cv2.VideoCapture('tcp://130.75.27.134:5555')
+    cap = cv2.VideoCapture('tcp://130.75.27.143:5555')
 
 
     # Check if camera opened successfully
@@ -125,7 +125,7 @@ class Camera(CameraTemplate):
   def record(self):
     print("record sequence of",self._expected_triggered_images, "Images")
     self.device_handle.send_command("sequence", self._expected_triggered_images)
-    print("command send")
+    print("record command send")
     for i in range(self._expected_triggered_images):
 
       print(i,"Image recieved")
@@ -166,21 +166,72 @@ class Camera(CameraTemplate):
 
     return resolution
 
+  def setTriggerMode(self, mode=None):
+    print("setting mode to:",mode)
+
+    if mode == "out" or mode =="OUT":
+      print("inside out")
+      mode_num = 1
+    else:
+      print("inside zero")
+      mode_num = 0
+
+    if mode is not None:
+      self.device_handle.send_command("triggermode", mode_num)
+
 
 
 
 if __name__ == "__main__":
   device_handle = Controller()
   cam = Camera(device_handle)
+  cam.setTriggerMode('out')
   cam.setFramerate(1)
-  cam.setResolution([1280,720])
+  # cam.recv_live(30)
+  cam.prepareRecording(15)
+  time.sleep(3)
+  cam.record()
+  time.sleep(3)
+
+  # cam.setResolution([1280,720])
   # cam.setResolution([3280, 2464]) not
 
   # cam.setResolution([2560,1920])
   # cam.setResolution([640, 480])
   # cam.setResolution([1920, 1080])
 
-  cam.setExposureMicrons(20000)
+  # cam.setExposureMicrons(40000)
+  # cam.setTriggerMode('off')
+
+
+
+  # cam.recv_live()
+  # cam.getImage()
+  # cam.captureStream()
+
+  # cam.setResolution([3280, 2464]) not
+  # cam.setResolution([3000, 2000]) #working
+  # cam.setResolution([3240, 2160]) not
+  # cam.setResolution([3200, 2048]) #working
+  #
+  # for i in range(500):
+  #     img = cam.getImage()
+  #     print(i)
+  #
+  # cv2.imwrite("image4k.jpg",img)
+  # cv2.namedWindow("Received Image", cv2.WND_PROP_FULLSCREEN)
+  # cv2.setWindowProperty("Received Image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+  # cv2.imshow("Received Image", img)
+  # cv2.waitKey(1)
+
+
+
+
+  # client.recv_live()
+  # cmd = bytes("camclose", 'ascii')
+  # client.send_command(cmd)
+
+
   # cam.setFramerate(1)
   # set 3 results in 0,4 fps
   # set 25 results in 1,3 fps
@@ -202,37 +253,3 @@ if __name__ == "__main__":
   # set 160 results in invalid framerad
   # set 180 results in invalid framerat
   # set 200 results in inavild framrat
-
-
-  # cam.recv_live()
-
-  cam.prepareRecording(10)
-  time.sleep(3)
-  cam.record()
-  # cam.getImage()
-  # cam.captureStream()
-
-  # cam.setResolution([3280, 2464]) not
-  # cam.setResolution([3000, 2000]) #working
-  # cam.setResolution([3240, 2160]) not
-  # cam.setResolution([3200, 2048]) #working
-  #
-  # for i in range(500):
-  #     img = cam.getImage()
-  #     print(i)
-  #
-  # cv2.imwrite("image4k.jpg",img)
-  # cv2.namedWindow("Received Image", cv2.WND_PROP_FULLSCREEN)
-  # cv2.setWindowProperty("Received Image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-  # cv2.imshow("Received Image", img)
-  # cv2.waitKey(1)
-  time.sleep(3)
-
-
-
-  # client.recv_live()
-  # cmd = bytes("camclose", 'ascii')
-  # client.send_command(cmd)
-
-
-

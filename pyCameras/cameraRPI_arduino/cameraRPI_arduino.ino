@@ -21,11 +21,19 @@ int LED = 13;
 int LED2 = 12;
 bool light = false;
 bool expo = false;
+bool trigger = false;
 
 
 void setup() {
   // put your setup code here, to run once:
 Serial.begin(9600);
+
+
+Wire.begin(SLAVE_ADDRESS);
+Wire.onReceive(receiveEvent);
+Wire.onRequest(sendData);
+
+
 pinMode(LED, OUTPUT);
 pinMode(LED2, OUTPUT);
 
@@ -42,7 +50,7 @@ Serial.println("Bereit");
 void loop() {
   loop_time = millis();
   time_since = loop_time-interrupt_time;
-  Serial.println(time_since);
+  //Serial.println(time_since);
   if (time_since < ExposureTime && expo == false && light == true)
   {
   Serial.println("LED LOW");
@@ -51,7 +59,7 @@ void loop() {
   light = false;
   }
   
-  if (time_since > ExposureTime && light == false)
+  if (time_since > ExposureTime && light == false && trigger == true)
   {
   Serial.println("LED HIGH");
   digitalWrite(LED, HIGH); // LED anschalten
@@ -61,7 +69,32 @@ void loop() {
   }
 
 }
+void receiveEvent(int howMany)
+{
+  while (Wire.available()){
+  receivedSignal = Wire.read();
+  Serial.println(receivedSignal);
+  if (receivedSignal == 0)
+{
+  Serial.println("Trigger mode off");
+  trigger = false;
+    digitalWrite(LED, LOW); // LED anschalten
+  digitalWrite(LED2, LOW);
+}
+else
+{
+  Serial.println("Trigger mode is on");
+  trigger = true;
+}
 
+  
+  }
+
+}
+void sendData() {
+  int FrameTime = 1 ;
+  Wire.write(FrameTime);
+}
 
 void funcionInterrupcion() {
  interrupt_time = millis();
