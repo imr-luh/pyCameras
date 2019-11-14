@@ -1,6 +1,5 @@
 # vlc tcp/h264://130.75.27.134:8000/ --h264-fps=50
 
-
 import sys
 import cv2
 import zmq
@@ -9,28 +8,27 @@ import time
 import logging
 from pyCameras.cameraTemplate import CameraTemplate
 import pyCameras.imagezmq as imagezmq
+import socket
 
-
-
-
-# import imagezmq.imagezmq.imagezmq
 
 LOGGING_LEVEL = None
 
 class Controller():
   def __init__(self):
-    context = zmq.Context()
+    self.context = zmq.Context()
     print("Init Controller…")
-    self.socket = context.socket(zmq.REQ)
+    self.socket = self.context.socket(zmq.REQ)
     self.image_hub = imagezmq.ImageHub()
 
-      # imagezmq.imagezmq.imagezmq.ImageHub()
-
+  def listDevices(self):
+    IP2 = socket.gethostbyname('raspberrypi')
+    return IP2
 
 
   def connect_ctrls(self):
     #  Socket to talk to server
     print("Connecting to crtl server…")
+    # TODO: find IP Address automatically?
     self.socket.connect("tcp://130.75.27.143:5554")
     print("Connected to crtl server…")
     self.socket.send(b"Client ready.")
@@ -39,8 +37,6 @@ class Controller():
     print("Server: ", message)
     # message = self.socket.recv()
     # print("Server: ", message)
-
-
 
   def send_command(self, cmd, val):
     if val is not None:
@@ -53,6 +49,11 @@ class Controller():
     msg = self.socket.recv()
     return
 
+  def closeController(self):
+    self.socket.close()
+    self.context.destroy()
+
+
 #################################################################################%%%%%%%%%%
 class Camera(CameraTemplate):
   def __init__(self,device_handle):
@@ -62,9 +63,11 @@ class Camera(CameraTemplate):
 
     self.device_handle = device_handle
     self._expected_triggered_images = None
-    self.device_handle.connect_ctrls()
+    self.openController()
     self.device = None
-
+  def openController(self):
+    self.controller = Controller()
+    self.controller.connect_ctrls()
 
   def recv_live(self):
     try:
@@ -87,10 +90,8 @@ class Camera(CameraTemplate):
     print("Single image recieved")
     return img
 
-
-
-  def getImages(self):
-    self.prepareRecording()
+  def getImages(self,num):
+    self.prepareRecording(num)
     return self.record()
 
   def prepareRecording(self,num):
@@ -135,7 +136,6 @@ class Camera(CameraTemplate):
     else:
        resolution = 1000 * resolution[0] + resolution[1]
 
-
     print(resolution)
     if resolution is not None:
       self.device_handle.send_command("Resolution", resolution)
@@ -160,10 +160,13 @@ class Camera(CameraTemplate):
 
 if __name__ == "__main__":
   device_handle = Controller()
-  cam = Camera(device_handle)
-  cam.setTriggerMode('out')
-  cam.setFramerate(20)
-  cam.recv_live()
+  # cam = Camera(device_handle)
+  # cam.setTriggerMode('out')
+
+  print(device_handle.listDevices())
+  # cam.setFramerate(20)
+  # cam.recv_live()
+
   # cam.prepareRecording(15)
   # time.sleep(3)
   # cam.record()
@@ -229,3 +232,5 @@ if __name__ == "__main__":
   # set 160 results in invalid framerad
   # set 180 results in invalid framerat
   # set 200 results in inavild framrat
+
+  device_handle.closeController()
