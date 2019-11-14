@@ -55,7 +55,7 @@ void loop() {
   {
   Serial.println("LED LOW");
   digitalWrite(LED, LOW); // LED anschalten
-  digitalWrite(LED2, LOW);
+  digitalWrite(LED2, HIGH);
   light = false;
   }
   
@@ -79,7 +79,7 @@ void receiveEvent(int howMany)
   Serial.println("Trigger mode off");
   trigger = false;
     digitalWrite(LED, LOW); // LED anschalten
-  digitalWrite(LED2, LOW);
+  digitalWrite(LED2, HIGH);
 }
 else
 {

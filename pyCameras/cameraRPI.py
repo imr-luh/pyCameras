@@ -66,42 +66,19 @@ class Camera(CameraTemplate):
     self.device = None
 
 
-  def recv_live(self,number):
-    self.device_handle.send_command("live", number)
-    time.sleep(4)
-    cap = cv2.VideoCapture('tcp://130.75.27.143:5555')
+  def recv_live(self):
+    try:
+      while(True):
+          image = self.getImage()
+          # Display the resulting frame
+          cv2.imshow('frame', image)
+          if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+      cv2.destroyAllWindows()
+    except Exception as e:
+      print("live view did not work")
+      print(e)
 
-
-    # Check if camera opened successfully
-    if (cap.isOpened()== False):
-      print("Error opening video  file")
-
-    # Read until video is completed
-    while(cap.isOpened()):
-
-      # Capture frame-by-frame
-      ret, frame = cap.read()
-      if ret == True:
-
-        # Display the resulting frame
-        cv2.namedWindow("Frame", cv2.WND_PROP_FULLSCREEN)
-        cv2.setWindowProperty("Frame", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        cv2.imshow('Frame', frame)
-
-        # Press Q on keyboard to  exit
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-          break
-
-      # Break the loop
-      else:
-        break
-
-    # When everything done, release
-    # the video capture object
-    cap.release()
-
-    # Closes all the frames
-    cv2.destroyAllWindows()
 
   def getImage(self):
     self.device_handle.send_command("getImage",None)
@@ -110,7 +87,6 @@ class Camera(CameraTemplate):
     print("Single image recieved")
     return img
 
-    return img
 
 
   def getImages(self):
@@ -186,12 +162,12 @@ if __name__ == "__main__":
   device_handle = Controller()
   cam = Camera(device_handle)
   cam.setTriggerMode('out')
-  cam.setFramerate(1)
-  # cam.recv_live(30)
-  cam.prepareRecording(15)
-  time.sleep(3)
-  cam.record()
-  time.sleep(3)
+  cam.setFramerate(20)
+  cam.recv_live()
+  # cam.prepareRecording(15)
+  # time.sleep(3)
+  # cam.record()
+  # time.sleep(3)
 
   # cam.setResolution([1280,720])
   # cam.setResolution([3280, 2464]) not

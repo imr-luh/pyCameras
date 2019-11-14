@@ -8,8 +8,6 @@ import picamera
 
 import zmq
 
-import socket
-
 import subprocess
 
 import sys
@@ -35,24 +33,10 @@ from picamera import PiCamera
 from io import BytesIO
 
 
-
-HOST = "localhost"
-
-PORT = 4223
-
-UID1 = "G33"
-
-UID2 = "G2Z"
-
-UID3 = "EMP"
-
-FREQ = 5000
-
 # i2c stuff
 bus = smbus.SMBus(1)
 address = 0x05
 Register = 42
-
 
 
 class server_ctrl():
@@ -60,6 +44,7 @@ class server_ctrl():
     def __init__(self):
         print("server class init")
         self.cam = None
+        self.context = None
         self.framerate = 30
         
     def start_camera(self):
@@ -94,61 +79,34 @@ class server_ctrl():
         self.rpi = socket.gethostname()  # send RPi hostname with each image
 
         print("img server ready")
-
-        print(self.rpi)  
+  
 
 
     def start_ctrl_server(self):
+        try:
 
-        context = zmq.Context()
+            self.context = zmq.Context()
 
-        self.socket = context.socket(zmq.REP)
+            self.socket = self.context.socket(zmq.REP)
 
-        self.socket.bind("tcp://*:5554")
+            self.socket.bind("tcp://*:5554")
 
-        print("ctrl server ready")
+            print("ctrl server ready")
 
-        self.waitforcmd()
+            self.waitforcmd()
 
-        time.sleep(3)
+            time.sleep(3)
+        except Exception as e:
+            self.close_everything()
+            print("start ctrl server did not work")
+            print(e)
+            
 
         #self.socket.send(b"Server ready.")
 
      
 
-    def stream_live(self,numstr):
-        if self.cam == None:
-            self.start_camera()
 
-        live_socket = socket.socket()
-
-        live_socket.bind(('0.0.0.0', 5555))
-
-        live_socket.listen(0)
-
-        # Accept a single connection and make a file-like object out of it
-
-        connection = live_socket.accept()[0].makefile('wb')
-
-
-        try:
-
-            self.cam.start_recording(connection, format='h264')
-
-            self.cam.wait_recording(int(numstr))
-
-            self.cam.stop_recording()
-
-        finally:
-
-            connection.close()
-
-            live_socket.close()
-            self.cam.close()
-
-            
-
-            
 
     def sendImage(self):
           if self.cam == None:
@@ -158,13 +116,11 @@ class server_ctrl():
 
           self.rawCap.truncate(0)
 
-          for i in range(20):
+          img = self.cam.capture(self.rawCap, format="raw",use_video_port=True)
 
-            img = self.cam.capture(self.rawCap, format="raw")
+          img = self.rawCap.array
 
-            img = self.rawCap.array
-
-            self.rawCap.truncate(0)
+          self.rawCap.truncate(0)
 
           self.sender.send_image(self.rpi, img)
 
@@ -292,6 +248,17 @@ class server_ctrl():
             print("Setting Triggermode not succesfull")
             if self.cam is not None:
                self.cam.close()
+               
+    def close_everything(self):
+
+        if self.cam is not None:
+            self.cam.close()
+        if self.socket is not None:
+            self.socket.close()
+        #if self.context is not None:
+           # self.context.term()
+        print("everything closed")
+
 
     
 
@@ -339,9 +306,6 @@ class server_ctrl():
             self.framerate = int(numstr)
 
             print("Setting Framerate to ", numstr)
-
-        elif topic == "b'live":
-            self.stream_live(numstr)
             
         elif topic == "b'triggermode":
             self.setTriggermode(numstr)
