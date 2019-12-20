@@ -147,9 +147,8 @@ class Camera(CameraTemplate):
         self.pipeline_started = False
         if len(self.devices) == 0:
             raise ConnectionError
-        #TODO Change this for multi realsense setup
-        #TODO Here check for no connection
 
+        #TODO Change this for multi realsense setup
         self.device = self.devices[0].query_sensors()[self.device_handle]
 
         self.pipeline = rs.pipeline(self.context)
@@ -161,13 +160,14 @@ class Camera(CameraTemplate):
         self.profile = rs.pipeline_profile
 
         self.img_data = []
+        self.Exposure = 0
         self._expected_images = 0
         self.framerate = 6
 
-        self.aligned_frames = None
+        self.aligned_frames = 0
 
-        self.openDevice()
         self.TriggerMode = None
+        self.openDevice()
 
 
     @staticmethod
@@ -189,7 +189,7 @@ class Camera(CameraTemplate):
         """
 
         if self.stream_profile is None:
-            #Todo Change here for specifig streamprofiles
+            #TODO Change here for specifig streamprofiles
             pass
 
         else:
@@ -197,18 +197,15 @@ class Camera(CameraTemplate):
             format = self.stream_profile.format()
             fps = self.stream_profile.fps()
 
-            # resolution = str(self.stream_profile).rsplit(" ", 3)[0].rsplit(" ", 1)[1].rsplit("x")
 
         #TODO Change this for multicamera setup
         if len(self.context.query_devices()[0].query_sensors()) == 2:
-            # self.config.enable_stream(stream_type, int(resolution[0]), int(resolution[1]), format, fps)
-            self.config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8, 6)
-            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1920, 1080, rs.format.bgr8, 6}")
-
+            self.config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8, self.framerate)
+            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1920, 1080, rs.format.bgr8, self.framerate}")
 
         self.config.enable_stream(rs.stream.depth, 480, 270, rs.format.z16, 6)
 
-        self.logger.info(f"Start displaying Depth profile {rs.stream.depth, 480, 270, rs.format.z16, 6}")
+        self.logger.info(f"Start displaying Depth profile {rs.stream.depth, 480, 270, rs.format.z16, self.framerate}")
         if self.pipeline_started is False:
             self.profile = self.pipeline.start(self.config)
             self.pipeline_started = True
@@ -227,10 +224,8 @@ class Camera(CameraTemplate):
             self.pipeline.stop()
 
     def get_board_temperature(self):
-
         """Get current board and depth sensor temperature"""
 
-        # depth_sensor = self.devices[0].query_sensors()[0]
         depth_sensor = self.profile.get_device().first_depth_sensor()
 
         # Get device temperature
@@ -268,7 +263,7 @@ class Camera(CameraTemplate):
 
         """
 
-        # depth_sensor = self.devices[0].query_sensors()[0]
+        # Get first depth sensor -> for enabling settings like trigger mode
         depth_sensor = self.profile.get_device().first_depth_sensor()
 
         if mode is None:
@@ -363,31 +358,31 @@ class Camera(CameraTemplate):
         color_image = np.asanyarray(img_bytes.get_data())
         color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
 
-        return color_image
-
+        return color_image#4mm endo
 
     def setExposureMicrons(self, microns=None):
         """
-                Set the exposure time to the given value in microseconds or read the
-                current value by passing None
+        Set the exposure time to the given value in microseconds or read the
+        current value by passing None
 
-                Parameters
-                ----------
-                microns : int
-                    Desired exposure time in microseconds that should be set, or None
-                    to read the current exposure time
+        Parameters
+        ----------
+        microns : int
+            Desired exposure time in microseconds that should be set, or None
+            to read the current exposure time
 
-                Returns
-                -------
-                microns : int
-                    The exposure time in microseconds after applying the passed value
-                """
+        Returns
+        -------
+        microns : int
+            The exposure time in microseconds after applying the passed value
+        """
 
         if microns is not None:
             self.logger.debug(f'Setting exposure time to {microns}us')
             self.device = self.profile.get_device().query_sensors()[1]
-            print(self.device.get_option(rs.option.exposure))
             self.device.set_option(rs.option.exposure, microns)
+            self.Exposure = microns
+
         return microns
 
     def setResolution(self, resolution=None):
@@ -410,36 +405,18 @@ class Camera(CameraTemplate):
             self.pipeline.stop()
             self.pipeline_started = False
 
-        # self.device = self.devices[self.device_handle]
-
+        # TODO check if better way to get resolution and fps from current camera stream
         self.stream_profile = self.device.get_stream_profiles()
-        # print(self.stream_profile)
-        # TODO check if sensors supports this settings
-        # if resolution is not None:
-        #
-        #     print(str(resolution[0])+"x"+str(resolution[1]))
-        #
-        #     resolution_string = str(resolution[0])+"x"+str(resolution[1])
-        #     if resolution_string in str(self.stream_profile):
-        #         stream_profile_string_length = str(self.stream_profile).find(",", 0, len(str(self.stream_profile)))
-        #         resolution_string_postion = str(self.stream_profile).find(resolution_string, 0, len(str(self.stream_profile)))
-        #
-        #         index = resolution_string_postion // stream_profile_string_length
-        #         self.stream_profile = self.stream_profile[index]
-
-        #TODO change this hardcoded profile to fps and etc
         self.stream_profile = self.stream_profile[12]
-        # self.openDevice()
 
-        #TODO return resolution
+        # TODO hardcoded resolution parameters check if getting resolution from stream is possible
         return 1920, 1080
 
     def setFps(self):
         pass
 
     def set_laser_off(self):
-
-        # depth_sensor = self.devices[0].query_sensors()[0]
+        """Setting the laser off"""
         depth_sensor = self.profile.get_device().first_depth_sensor()
 
         if depth_sensor.supports(rs.option.laser_power):
@@ -448,7 +425,14 @@ class Camera(CameraTemplate):
         else:
             self.logger.info("Setting Laser off is not possible")
 
+    def prepare_live(self, exposure):
+        """Define live view exposure time to be less. So no overlighting occurs"""
+        live_exposure = exposure * 0.05
+        self.setExposureMicrons(microns=live_exposure)
+        self.logger.info(f"Live View Exposure time : {live_exposure}µs")
+
     def get_sensor_options(self, sensor=None):
+        """Function for getting the possible sensor options"""
         self.logger.info("Sensor supports following options:")
 
         options = list(rs.option.__members__)
@@ -496,7 +480,7 @@ if __name__ == '__main__':
     #cam.setResolution((640, 480))
     # cam.setExposureMicrons()
     cam.get_board_temperature()
-    cam.setTriggerMode("out")
+    cam.setTriggerMode("Out")
     cam.setExposureMicrons(500)
     #cam.get_sensor_options()
     index = 0
