@@ -1,6 +1,6 @@
-__author__ = "Pascal Kern"
-__credits__ = "Niklas Kroeger"
-__maintainer__ = "Pascal Kern, Philipp Middendorf"
+__author__ = "Philipp Middendorf"
+__credits__ = "Kolja Hedrich, Pascal Kern"
+__maintainer__ = "Philipp Middendorf"
 __email__ = "philipp.middendorf@imr.uni-hannover.de"
 __status__ = "Development"
 
@@ -10,7 +10,6 @@ import v4l2
 import fcntl
 import mmap
 import select
-import time
 import cv2
 import matplotlib.pyplot as plt
 
@@ -23,6 +22,8 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = logging.DEBUG
 
+# todo edit v4l2.py list(range(1,9)) + [0x80] and list(range(0, 4)) + [2]
+
 
 class Controller(ControllerTemplate):
     """ Camera Controller for the OV2740 camera."""
@@ -34,7 +35,7 @@ class Controller(ControllerTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
 
-        self.logger.info("Starting Ov2740 Camera Controller")
+        self.logger.info("Starting OV2740 Camera Controller")
         # Todo: what does this do?
         # self.context = rs.context()
         self.devices = []
@@ -42,7 +43,7 @@ class Controller(ControllerTemplate):
 
     def listDevices(self):
         """
-        Returns a list of available realsense devices. One or more of these devices can
+        Returns a list of available camera devices. One or more of these devices can
         be used as parameter for self.getDevice to open corresponding Device
 
         :return: self.device_handles : list
@@ -50,25 +51,31 @@ class Controller(ControllerTemplate):
         """
         # Using the context we can get all connected devices in a device list
         self.logger.info("Searching for OV2740 Camera devices")
-        self.devices = self.context.query_devices()
-        if self.devices.size() == 0:
-            self.logger.error("No device connected, please connect a camera device")
-            raise ConnectionError
 
-        self.logger.info("Found the following devices:")
+        # self.devices = self.context.query_devices()
 
-        index = 0
-        serial_number = str
-        name = str
 
-        for device in self.devices:
-            if device.supports(rs.camera_info.name):
-                name = device.get_info(rs.camera_info.name)
+        # if self.devices.size() == 0:
+        #     self.logger.error("No device connected, please connect a camera device")
+        #     raise ConnectionError
+        #
+        # self.logger.info("Found the following devices:")
+        #
+        # index = 0
+        # serial_number = str
+        # name = str
+        #
+        # for device in self.devices:
+        #     cp = v4l2.v4l2_capability()
+        #     fcntl.ioctl(device, v4l2.VIDIOC_QUERYCAP, cp)
+        #
+        #     name = (chr(c) for c in cp.card)
+        #     print("Name:", name)
+        #
+        #
+        #     self.logger.info(f"Device Index {index} : {name}")
+        #     index += 1
 
-            if device.supports(rs.camera_info.serial_number):
-                serial_number = device.get_info(rs.camera_info.serial_number)
-            self.logger.info(f"Device Index {index} : {name} {serial_number}")
-            index += 1
 
         self.updateDeviceHandles()
         return self.device_handles
@@ -78,20 +85,29 @@ class Controller(ControllerTemplate):
         Updates the list of available device handles
 
         """
-        # TODO Change this for multi camera setup
-        sensors = self.devices[0].query_sensors()
-        self.logger.info(f"Device consists of {len(sensors)} sensors:")
-
+        self.logger.info("set devices[0] = 1")
         index = 0
-        for sensor in sensors:
-            if sensor.supports(rs.camera_info.name):
-                name = sensor.get_info(rs.camera_info.name)
-            else:
-                name = "Unknown Sensor"
 
-            self.logger.info(f"Sensor Index {index} : {name}")
+        if not (open('/dev/video0', 'rb+', buffering = 0) == -1 ):
             self.device_handles.append(index)
             index += 1
+
+        if not (open('/dev/video1', 'rb+', buffering=0) == -1 ):
+            self.device_handles.append(index)
+            index += 1
+
+        if not (open('/dev/video2', 'rb+', buffering=0) == -1 ):
+            self.device_handles.append(index)
+            index += 1
+
+        if not (open('/dev/video3', 'rb+', buffering=0) == 1 ):
+            self.device_handles.append(index)
+
+        self.logger.debug('Found {num} OV2740 camera devices: {devices}'
+                          ''.format(num=len(self.device_handles),
+                                    devices=self.device_handles))
+
+        return 1
 
     def getDevice(self, device_handle):
         """
@@ -106,9 +122,10 @@ class Controller(ControllerTemplate):
           :return: Camera(device_handle) : Camera object
             The capture device of type cameraRealsense
           """
-        self.logger.debug('Opening device {device_handle}'
-                          ''.format(device_handle=device_handle))
-        return Camera(device_handle=device_handle)
+        # self.logger.debug('Opening device {device_handle}'
+        #                   ''.format(device_handle=device_handle))
+        self.logger.debug('Opening device')
+        return Camera()
 
     def closeController(self):
         """
@@ -147,22 +164,23 @@ class Camera(CameraTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
         self.device_handle = device_handle
 
-        self.context = rs.context()
-        self.devices = self.context.query_devices()
+        # self.context = rs.context()
+        #         # self.devices = self.context.query_devices()
         self.pipeline_started = False
+
         if len(self.devices) == 0:
             raise ConnectionError
 
         #TODO Change this for multi realsense setup
-        self.device = self.devices[0].query_sensors()[self.device_handle]
+        open('/dev/video0', 'rb+', buffering=0)
 
-        self.pipeline = rs.pipeline(self.context)
-
-        self.config = rs.config()
-
-        self.stream_profile = self.device.get_stream_profiles()[0]
-
-        self.profile = rs.pipeline_profile
+        # self.pipeline = rs.pipeline(self.context)
+        #
+        # self.config = rs.config()
+        #
+        # self.stream_profile = self.device.get_stream_profiles()[0]
+        #
+        # self.profile = rs.pipeline_profile
 
         self.img_data = []
         self.Exposure = 0
@@ -586,56 +604,6 @@ class Camera(CameraTemplate):
 
 
 if __name__ == '__main__':
-    Frames = 86
-    img = getFrames(Frames, exposure=800)
-    print(img.shape)
-    print(img.dtype)
-    img[0::2, 0::2] = np.multiply(img[0::2, 0::2], 1.8)
-    img[1::2, 1::2] = np.multiply(img[1::2, 1::2], 1.7)
-    # img[0::2, 0::2] *= 1.969 # Blue
-    # img[1::2, 1::2] *= 1.707 # Red
-    # img = img.astype(np.uint16)
-
-    # cv2.imwrite("OV2740_UVC_Camera/RawBilder/bayer_rightshifted.tiff", img)
-    # np.save('OV2740_UVC_Camera/NumpyRaw/frame_testpattern2', img)
-    plt.imshow(img, cmap="gray", vmin=0, vmax=1024)
-    plt.show()
-
-
-
-    # result = cv2.cvtColor(img_norm, cv2.COLOR_BGR2LAB)
-    # avg_a = np.average(result[:, :, 1])
-    # avg_b = np.average(result[:, :, 2])
-    # result[:, :, 1] = result[:, :, 1] - ((avg_a - 0.5) * (result[:, :, 0] / 1.0) * 1.1)
-    # result[:, :, 2] = result[:, :, 2] - ((avg_b - 0.5) * (result[:, :, 0] / 1.0) * 1.1)
-    # img_whitebalanced = cv2.cvtColor(result, cv2.COLOR_LAB2BGR)
-
-
-    # demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_bilinear(img, "BGGR")
-    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(img, "BGGR")
-    # demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_Malvar2004(img, "BGGR")
-    # demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_Menon2007(img, "BGGR")
-    # demosaic_norm = np.dstack([demosaic_img[:,:,0] / np.max(demosaic_img[:,:,0]), demosaic_img[:,:,1] / np.max(demosaic_img[:,:,1]),demosaic_img[:,:,2] / np.max(demosaic_img[:,:,2])])
-
-    demosaic_norm = demosaic_img.copy() / np.max(demosaic_img)
-    img = demosaic_img.copy().astype(np.uint16)
-    img2 = demosaic_norm.copy()
-
-    # img_cc = stretch(img)
-
-    # images = np.concatenate((demosaic_norm, demosaic_img), axis=1)
-    plt.imshow(demosaic_norm)
-    plt.show()
-
-    # img_cc_norm = img_cc.copy() / np.max(img_cc)
-
-    # plt.imshow(img_cc_norm)
-    # plt.show()
-
-
-
-
-
     logger = logging.getLogger(__name__)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
@@ -645,11 +613,9 @@ if __name__ == '__main__':
     cam = Camera(1)
     # cv2.namedWindow('Color Image', cv2.WINDOW_AUTOSIZE)
     # cv2.namedWindow('Depth Image', cv2.WINDOW_AUTOSIZE)
-    cam.set_laser_off()
 
     #cam.setResolution((640, 480))
     # cam.setExposureMicrons()
-    cam.get_board_temperature()
     cam.setTriggerMode("Out")
     cam.setExposureMicrons(500)
     #cam.get_sensor_options()
