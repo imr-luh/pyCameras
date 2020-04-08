@@ -12,7 +12,7 @@ import mmap
 import select
 import cv2
 import matplotlib.pyplot as plt
-
+import os
 import time
 from threading import Event
 import sys
@@ -41,73 +41,38 @@ class Controller(ControllerTemplate):
         self.devices = []
         self.device_handles = []
 
-    def listDevices(self):
-        """
-        Returns a list of available camera devices. One or more of these devices can
-        be used as parameter for self.getDevice to open corresponding Device
-
-        :return: self.device_handles : list
-            List of available capture devices
-        """
-        # Using the context we can get all connected devices in a device list
-        self.logger.info("Searching for OV2740 Camera devices")
-
-        # self.devices = self.context.query_devices()
-
-
-        # if self.devices.size() == 0:
-        #     self.logger.error("No device connected, please connect a camera device")
-        #     raise ConnectionError
-        #
-        # self.logger.info("Found the following devices:")
-        #
-        # index = 0
-        # serial_number = str
-        # name = str
-        #
-        # for device in self.devices:
-        #     cp = v4l2.v4l2_capability()
-        #     fcntl.ioctl(device, v4l2.VIDIOC_QUERYCAP, cp)
-        #
-        #     name = (chr(c) for c in cp.card)
-        #     print("Name:", name)
-        #
-        #
-        #     self.logger.info(f"Device Index {index} : {name}")
-        #     index += 1
-
-
-        self.updateDeviceHandles()
-        return self.device_handles
 
     def updateDeviceHandles(self):
         """
         Updates the list of available device handles
 
         """
-        self.logger.info("set devices[0] = 1")
+        self.logger.info("searching camera devices")
         index = 0
 
-        if not (open('/dev/video0', 'rb+', buffering = 0) == -1 ):
-            self.device_handles.append(index)
-            index += 1
+        cam = "CX3-UVC"
+        v4l2path = "/sys/class/video4linux"
+        for base, subs, filenames in os.walk(v4l2path, followlinks=True):
+            for filename in filenames:
+                if filename == "name":
+                    pth = os.path.join(base, filename)
+                    with open(pth, "r") as f:
+                        name = f.read()
+                        if cam in name:
+                            device_input = os.path.split(base)[1]
+                            self.device_handles.append(device_input)
+                            return 1
 
-        if not (open('/dev/video1', 'rb+', buffering=0) == -1 ):
-            self.device_handles.append(index)
-            index += 1
+        # cameras = ['/dev/video0']
+        # for camera in cameras:
+        #     open(camera, 'rb+', buffering=0)
+        #     self.device_handles.append(index)
 
-        if not (open('/dev/video2', 'rb+', buffering=0) == -1 ):
-            self.device_handles.append(index)
-            index += 1
 
-        if not (open('/dev/video3', 'rb+', buffering=0) == 1 ):
-            self.device_handles.append(index)
+        # self.logger.debug('Found {num} OV2740 camera devices: {devices}'
+        #                   ''.format(num=len(self.device_handles),
+        #                             devices=self.device_handles))
 
-        self.logger.debug('Found {num} OV2740 camera devices: {devices}'
-                          ''.format(num=len(self.device_handles),
-                                    devices=self.device_handles))
-
-        return 1
 
     def getDevice(self, device_handle):
         """
@@ -125,14 +90,21 @@ class Controller(ControllerTemplate):
         # self.logger.debug('Opening device {device_handle}'
         #                   ''.format(device_handle=device_handle))
         self.logger.debug('Opening device')
-        return Camera()
+        try:
+            return Camera(device_handle)
+        except Exception as e:
+            self.logger.exception('Failed to open the camera device: {e}'
+                                  ''.format(e=e))
+            msg = '<Was not able to open camera with given device handle!!'
+            e.message = msg
+            raise
 
     def closeController(self):
         """
             Delete all detected devices
         """
-        for sensor in self.device_handles:
-            del sensor
+        for dev in self.device_handles:
+            del dev
         self.logger.info("OV2740 Camera Controller shutdown")
 
     def __del__(self):
@@ -148,7 +120,7 @@ class Controller(ControllerTemplate):
 
         :return: str
         """
-        return "<Realsense Camera Controller>"
+        return "<OV2740 Camera Controller>"
 
 
 class Camera(CameraTemplate):
@@ -164,23 +136,11 @@ class Camera(CameraTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
         self.device_handle = device_handle
 
-        # self.context = rs.context()
-        #         # self.devices = self.context.query_devices()
-        self.pipeline_started = False
+        self.devices = self.device_handle
+        self.stream_started = False
 
         if len(self.devices) == 0:
             raise ConnectionError
-
-        #TODO Change this for multi realsense setup
-        open('/dev/video0', 'rb+', buffering=0)
-
-        # self.pipeline = rs.pipeline(self.context)
-        #
-        # self.config = rs.config()
-        #
-        # self.stream_profile = self.device.get_stream_profiles()[0]
-        #
-        # self.profile = rs.pipeline_profile
 
         self.img_data = []
         self.Exposure = 0
@@ -206,56 +166,67 @@ class Camera(CameraTemplate):
 
     def openDevice(self):
         """
-        Open the device for capturing images. For Realsense camera starting pipeline with specific config.
+        Open the device for capturing images.
 
-        :return: self.pipeline.start(self.config) : pipeline_profile_object
+        :return:
         """
+        try:
+            self.device = open(str('/dev/' + self.devices[0]), 'rb+', buffering=0)
 
-        if self.stream_profile is None:
-            #TODO Change here for specifig streamprofiles
-            pass
+            print(">> get device capabilities")
+            self.cp = v4l2.v4l2_capability()
+            fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYCAP, self.cp)
 
-        else:
-            vd = open('/dev/video0', 'rb+', buffering=0)
+            print("Driver:", "".join((chr(c) for c in self.cp.driver)))
+            print("Name:", "".join((chr(c) for c in self.cp.card)))
+            print("Is a video capture device?", bool(self.cp.capabilities & v4l2.V4L2_CAP_VIDEO_CAPTURE))
+            print("Supports read() call?", bool(self.cp.capabilities & v4l2.V4L2_CAP_READWRITE))
+            print("Supports streaming?", bool(self.cp.capabilities & v4l2.V4L2_CAP_STREAMING))
+
+            print(">> device setup")
+            self.fmt = v4l2.v4l2_format()
+            self.fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_FMT, self.fmt)  # get current settings
+            print("width:", self.fmt.fmt.pix.width, "height", self.fmt.fmt.pix.height)
+            print("pxfmt:", "V4L2_PIX_FMT_YUYV" if self.fmt.fmt.pix.pixelformat == v4l2.V4L2_PIX_FMT_YUYV else self.fmt.fmt.pix.pixelformat)
+            print("bytesperline:", self.fmt.fmt.pix.bytesperline)
+            print("sizeimage:", self.fmt.fmt.pix.sizeimage)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_S_FMT, self.fmt)
+
             print(">>> streamparam")  ## somewhere in here you can set the camera framerate
-            parm = v4l2.v4l2_streamparm()
-            parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-            parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
-            fcntl.ioctl(vd, v4l2.VIDIOC_G_PARM, parm)
-            fcntl.ioctl(vd, v4l2.VIDIOC_S_PARM, parm)  # just got with the defaults
+            self.parm = v4l2.v4l2_streamparm()
+            self.parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            self.parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_PARM, self.parm)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_S_PARM, self.parm)  # just got with the defaults
+
+            self.logger.debug('Opened camera device: {device}'
+                                  ''.format(device=self.device.name))
+        except Exception as e:
+            self.logger.exception('Failed to open the camera device: {e}'
+                                  ''.format(e=e))
 
             # stream_type = self.stream_profile.stream_type()
             # format = self.stream_profile.format()
             # fps = self.stream_profile.fps()
 
-
-        #TODO Change this for multicamera setup
-        if len(self.context.query_devices()[0].query_sensors()) == 2:
-            self.config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8, self.framerate)
-            self.logger.info(f"Start displaying Color profile {rs.stream.color, 1920, 1080, rs.format.bgr8, self.framerate}")
-
-        self.config.enable_stream(rs.stream.depth, 480, 270, rs.format.z16, 6)
-
-        self.logger.info(f"Start displaying Depth profile {rs.stream.depth, 480, 270, rs.format.z16, self.framerate}")
-        if self.pipeline_started is False:
-            self.profile = self.pipeline.start(self.config)
-            self.pipeline_started = True
-
     def closeDevice(self):
         """
-        Release the device
+        Close the connection to the device
         """
-        self.logger.debug(f'Releasing device {self.device} capture for sensor {self.device_handle}')
+        if self.device is not None:
+            try:
+                self.logger.debug('Closing camera device: {device}'
+                                  ''.format(device=self.device))
+                self.device.Close()
+                del self.device
+                self.device = None
 
-        vd.close()
-
-
-        del self.device
-        self.device = None
-
-        if self.pipeline_started:
-            self.pipeline_started = False
-            self.pipeline.stop()
+            except Exception as e:
+                self.logger.exception('Failed to close the camera device: '
+                                      '{e}'.format(e=e))
+        else:
+            self.logger.info('No Device present.')
 
 
     def setTriggerMode(self, mode=None):
@@ -490,26 +461,24 @@ class Camera(CameraTemplate):
             # query control
             qc = v4l2.v4l2_queryctrl()
             qc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
-            fcntl.ioctl(vd, v4l2.VIDIOC_QUERYCTRL, qc)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYCTRL, qc)
             print("exposure defalut: ", qc.default)
 
             # get control value
             gc = v4l2.v4l2_control()
             gc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
-            fcntl.ioctl(vd, v4l2.VIDIOC_G_CTRL, gc)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
             print("exposure_curr", gc.value)
 
             # set control value
-            gc.value = exposure
-            fcntl.ioctl(vd, v4l2.VIDIOC_S_CTRL, gc)
+            gc.value = microns
+            fcntl.ioctl(self.device, v4l2.VIDIOC_S_CTRL, gc)
             print("exposure set to: ", gc.value)
 
             # get control value
-            fcntl.ioctl(vd, v4l2.VIDIOC_G_CTRL, gc)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
             print("exposure is", gc.value)
 
-            self.device = self.profile.get_device().query_sensors()[1]
-            self.device.set_option(rs.option.exposure, microns)
             self.Exposure = microns
 
         return microns
@@ -544,15 +513,6 @@ class Camera(CameraTemplate):
     def setFps(self):
         pass
 
-    def set_laser_off(self):
-        """Setting the laser off"""
-        depth_sensor = self.profile.get_device().first_depth_sensor()
-
-        if depth_sensor.supports(rs.option.laser_power):
-            depth_sensor.set_option(rs.option.laser_power, 0)
-            self.logger.info("Setting Laser off")
-        else:
-            self.logger.info("Setting Laser off is not possible")
 
     def prepare_live(self, exposure):
         """Define live view exposure time to be less. So no overlighting occurs"""
@@ -560,33 +520,6 @@ class Camera(CameraTemplate):
         self.setExposureMicrons(microns=live_exposure)
         self.logger.info(f"Live View Exposure time : {live_exposure}µs")
 
-    def get_sensor_options(self, sensor=None):
-        """Function for getting the possible sensor options"""
-        self.logger.info("Sensor supports following options:")
-
-        # Todo: implement v4l2
-        # cp = v4l2.v4l2_capability()
-        # fcntl.ioctl(vd, v4l2.VIDIOC_QUERYCAP, cp)
-        # print("Driver:", "".join((chr(c) for c in cp.driver)))
-        # print("Name:", "".join((chr(c) for c in cp.card)))
-        # print("Is a video capture device?", bool(cp.capabilities & v4l2.V4L2_CAP_VIDEO_CAPTURE))
-        # print("Supports read() call?", bool(cp.capabilities & v4l2.V4L2_CAP_READWRITE))
-        # print("Supports streaming?", bool(cp.capabilities & v4l2.V4L2_CAP_STREAMING))
-
-        # options = list(rs.option.__members__)
-        # for i in range(len(options)):
-        #     option_type = options[i]
-        #     option = rs.option(i)
-        #
-        #     self.logger.info(f"{i} : {option_type}")
-        #
-        #     if self.device.supports(option):
-        #         self.logger.info(f"Description : {self.device.get_option_description(option)}")
-        #         self.logger.info(f"Current Value : {self.device.get_option(option)}")
-        #
-        #     if sensor is not None and sensor.supports(option):
-        #         self.logger.info(f"Description : {sensor.get_option_description(option)}")
-        #         self.logger.info(f"Current Value : {sensor.get_option(option)}")
 
     def __del__(self):
         """
@@ -598,9 +531,9 @@ class Camera(CameraTemplate):
         if self.device is not None:
             del self.device
 
-        if self.pipeline_started:
-            self.pipeline_started = False
-            self.pipeline.stop()
+        if self.stream_started:
+            self.stream_started = False
+            # self.pipeline.stop()
 
 
 if __name__ == '__main__':
@@ -608,33 +541,24 @@ if __name__ == '__main__':
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
 
-    # device_index = 1
-    # if device_index <= len(available_devices):
-    cam = Camera(1)
-    # cv2.namedWindow('Color Image', cv2.WINDOW_AUTOSIZE)
-    # cv2.namedWindow('Depth Image', cv2.WINDOW_AUTOSIZE)
+    cam = Camera(available_devices)
 
-    #cam.setResolution((640, 480))
-    # cam.setExposureMicrons()
-    cam.setTriggerMode("Out")
     cam.setExposureMicrons(500)
-    #cam.get_sensor_options()
+    cam.setTriggerMode("Out")
+    # cam.setFramerate(6)
+
+    cv2.namedWindow('OV2740 RAW Image', cv2.WINDOW_AUTOSIZE)
     index = 0
     while True:
         color_img = cam.getImage()
-
-        if index == 50:
-            cam.get_board_temperature()
-            index = 0
-
         index += 1
 
         if color_img is not None:
             if color_img.shape[0] > 640:
-                cv2.imshow('Color Image', cv2.resize(color_img, (640, 480)))
-        # if depth_img is not None:
-        #     cv2.imshow('Depth Image', depth_img)
+                cv2.imshow('OV2740 RAW Image', cv2.resize(color_img, (640, 480)))
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
+
+    del cam
