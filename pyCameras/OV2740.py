@@ -218,7 +218,7 @@ class Camera(CameraTemplate):
             try:
                 self.logger.debug('Closing camera device: {device}'
                                   ''.format(device=self.device))
-                self.device.Close()
+                # self.device.Close()
                 del self.device
                 self.device = None
 
@@ -236,47 +236,20 @@ class Camera(CameraTemplate):
 
         """
 
-        # Get first depth sensor -> for enabling settings like trigger mode
-        depth_sensor = self.profile.get_device().first_depth_sensor()
-
         if mode is None:
             return self.TriggerMode
 
         elif mode == r'In':
-            if depth_sensor.supports(rs.option.output_trigger_enabled):
-                depth_sensor.set_option(rs.option.output_trigger_enabled, 1.0)
-                self.logger.info("Camera In Trigger on")
                 self.TriggerMode = mode
-            else:
-                self.logger.warning(f"Failed to set Triggermode {mode}")
-
-            if depth_sensor.supports(rs.option.inter_cam_sync_mode):
-                depth_sensor.set_option(rs.option.inter_cam_sync_mode, 2.0)
-                self.logger.info("In Camera in inter cam mode Slave ")
+                self.logger.warning(f"Trigger mode not implemented: {mode}")
 
         elif mode == r'Out':
-            if depth_sensor.supports(rs.option.output_trigger_enabled):
-                depth_sensor.set_option(rs.option.output_trigger_enabled, 1.0)
-                self.logger.info("Camera Out Trigger on")
-                self.TriggerMode = mode
-            else:
-                self.logger.warning(f"Failed to set Triggermode {mode}")
-
-            if depth_sensor.supports(rs.option.inter_cam_sync_mode):
-                depth_sensor.set_option(rs.option.inter_cam_sync_mode, 1.0)
-                self.logger.info("Out Camera in inter cam mode Master ")
+            self.logger.info("Camera Out Trigger on")
+            self.TriggerMode = mode
 
         elif mode == r'Off':
-            if depth_sensor.supports(rs.option.output_trigger_enabled):
-                depth_sensor.set_option(rs.option.output_trigger_enabled, 0.0)
-                self.logger.info("Camera Trigger Off")
-                self.TriggerMode = mode
-            else:
-                self.logger.warning(f"Failed to set Triggermode {mode}")
-
-            if depth_sensor.supports(rs.option.inter_cam_sync_mode):
-                depth_sensor.set_option(rs.option.inter_cam_sync_mode, 0.0)
-                self.logger.info("Inter Camera mode default")
+            self.TriggerMode = mode
+            self.logger.warning(f"Trigger mode not implemented: {mode}")
 
         return self.TriggerMode
 
@@ -286,29 +259,29 @@ class Camera(CameraTemplate):
         req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         req.memory = v4l2.V4L2_MEMORY_MMAP
         req.count = 1  # nr of buffer frames
-        fcntl.ioctl(vd, v4l2.VIDIOC_REQBUFS, req)  # tell the driver that we want some buffers
+        fcntl.ioctl(self.device, v4l2.VIDIOC_REQBUFS, req)  # tell the driver that we want some buffers
         print("req.count", req.count)
 
-        buffers = []
+        self.buffers = []
         print(">>> VIDIOC_QUERYBUF, mmap, VIDIOC_QBUF")
         for ind in range(req.count):
             # setup a buffer
-            buf = v4l2.v4l2_buffer()
-            buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-            buf.memory = v4l2.V4L2_MEMORY_MMAP
-            buf.index = ind
-            fcntl.ioctl(vd, v4l2.VIDIOC_QUERYBUF, buf)
+            self.buf = v4l2.v4l2_buffer()
+            self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            self.buf.memory = v4l2.V4L2_MEMORY_MMAP
+            self.buf.index = ind
+            fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYBUF, self.buf)
 
-            mm = mmap.mmap(vd.fileno(), buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
-                           offset=buf.m.offset)
-            buffers.append(mm)
+            mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+                           offset=self.buf.m.offset)
+            self.buffers.append(mm)
 
             # queue the buffer for capture
-            fcntl.ioctl(vd, v4l2.VIDIOC_QBUF, buf)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)
 
         print(">> Start streaming")
-        buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-        fcntl.ioctl(vd, v4l2.VIDIOC_STREAMON, buf_type)
+        self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
+        fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMON, self.buf_type)
 
         print(">> Capture image")
         t0 = time.time()
@@ -316,110 +289,43 @@ class Camera(CameraTemplate):
         ready_to_read, ready_to_write, in_error = ([], [], [])
         print(">>> select")
         while len(ready_to_read) == 0 and time.time() - t0 < max_t:
-            ready_to_read, ready_to_write, in_error = select.select([vd], [], [], max_t)
+            ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
 
-        print(">>> download buffers")
-        index = 1
-        buf = v4l2.v4l2_buffer()
-        buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-        buf.memory = v4l2.V4L2_MEMORY_MMAP
-
-        # if self.pipeline_started:
-        #     self.pipeline.stop()
-        #     self.pipeline_started = False
-        #
-        # self.openDevice()
-        #
-        # self._expected_images = num + 2
-
+        self._expected_images = num
         self.logger.info(f"Prepare recording {num} images")
 
 
     def record(self):
+        fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+        fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+        images = list()
         self.logger.info(f"Recording {self._expected_images}")
-        index = 1
-        for i in range(Frames):  # capture 50 frames
-            if index == 1:
-                print("empyt frame passed")
-                fcntl.ioctl(vd, v4l2.VIDIOC_DQBUF, buf)  # get image from the driver queue
-                fcntl.ioctl(vd, v4l2.VIDIOC_QBUF, buf)  # request new image
-                print(f"Frame : {index}")
-            else:
-                print(f"Frame : {index}")
+        index = 0
+        for i in range(self._expected_images):  # capture 50 frames
+            print(f"Frame : {index}")
 
-                fcntl.ioctl(vd, v4l2.VIDIOC_DQBUF, buf)  # get image from the driver queue
-                # print("buf.index", buf.index)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+            # print("buf.index", buf.index)
 
-                mm = buffers[buf.index]
+            mm = self.buffers[self.buf.index]
 
-                image_bytestream = mm.read()
-                mm.seek(0)
-                fcntl.ioctl(vd, v4l2.VIDIOC_QBUF, buf)  # request new image
+            image_bytestream = mm.read()
+            mm.seek(0)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
 
-                image_bytearray = bytearray(image_bytestream)
+            image_bytearray = bytearray(image_bytestream)
 
-                # image_struct = struct.unpack('>'+'H'*(1928*1088), image_bytes)
+            # image_struct = struct.unpack('>'+'H'*(1928*1088), image_bytes)
 
-                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
-                image = np.right_shift(image_array, 6).astype(np.uint16)
-
-                # LibRaw Test:
-                # proc = libraw.LibRaw()  # create RAW processor
-                # proc.imgdata = image_array_right_shift
-                # proc.open_file(image_array_right_shift)  # open file
-                # proc.unpack()  # extract mosaic from file
-                # mosaic = proc.imgdata.rawdata.raw_image
-
-                # AndoridCamera Test:
-
-                # cap = {"width": 1928,
-                #        "height": 1088,
-                #        "format": "raw",
-                #        }
-                # props = {}
-                # r, gr, gb, b = convert_capture_to_planes(cap, image_array_right_shift, props)
-                # # image = convert_raw_to_rgb_image(r, gr, gb, b, props, cap_res=None)
-                # h = r.shape[0]
-                # w = r.shape[1]
-                # image = np.dstack([b, (gr + gb) / 2.0, r])
-                #
-                # norm_img = np.float64(image / 1024.0)
-
-                # image = np.int16(image)
-                # image = np.ndarray([r[:,:,0], (gb[:,:,0] + gr[:,:,0]) / 2, b[:,:,0]])
-                # img = (((img.reshape(h, w, 3) - black_levels) * scale) * gains).clip(0.0, 1.0)
-                # img = numpy.dot(img.reshape(w * h, 3), ccm.T).reshape(h, w, 3).clip(0.0, 1.0)
-
-                # image = image_array_right_shift.reshape(1088, 1928)
-
-                # with rawpy.imread(img) as raw:
-                #     rgb = raw.postprocess()
-                # imageio.imsave('default.tiff', rgb)
-
+            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
+            img_data = np.right_shift(image_array, 6).astype(np.uint16)
+            images.append(img_data)
             index += 1
 
-        # if self.pipeline_started is False:
-        #     self.openDevice()
-        #
-        # self.img_data = []
-        # img_bytes = []
-        # color_img = None
-        #
-        # for sensor in self.profile.get_device().query_sensors():
-        #     sensor.set_option(rs.option.frames_queue_size, 0)
-        #
-        # for _ in range(self._expected_images):
-        #     frame = self.pipeline.wait_for_frames()
-        #     img_bytes = frame.get_color_frame()
-        #     color_image = np.asanyarray(img_bytes.get_data())
-        #     color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        #     self.img_data.append(color_image)
-        #
-
-        fcntl.ioctl(vd, v4l2.VIDIOC_STREAMOFF, buf_type)
+        fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMOFF, self.buf_type)
         self.closeDevice()
 
-        return copy.deepcopy(self.img_data)
+        return images
 
     def getImage(self):
         """
@@ -429,15 +335,26 @@ class Camera(CameraTemplate):
             Image of active sensor from realsense device
         """
 
-        if self.pipeline_started is False:
+        if self.stream_started is False:
             self.openDevice()
 
-        frames = self.pipeline.wait_for_frames()
-        img_bytes = frames.get_color_frame()
-        color_image = np.asanyarray(img_bytes.get_data())
-        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+        # print("buf.index", buf.index)
 
-        return color_image#4mm endo
+        mm = self.buffers[self.buf.index]
+
+        image_bytestream = mm.read()
+        mm.seek(0)
+        fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+
+        image_bytearray = bytearray(image_bytestream)
+
+        # image_struct = struct.unpack('>'+'H'*(1928*1088), image_bytes)
+
+        image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
+        image = np.right_shift(image_array, 6).astype(np.uint16)
+
+        return image#4mm endo
 
     def setExposureMicrons(self, microns=None):
         """
@@ -549,16 +466,19 @@ if __name__ == '__main__':
 
     cv2.namedWindow('OV2740 RAW Image', cv2.WINDOW_AUTOSIZE)
     index = 0
-    while True:
-        color_img = cam.getImage()
-        index += 1
+    cam.prepareRecording(10)
+    images = cam.record()
 
-        if color_img is not None:
-            if color_img.shape[0] > 640:
-                cv2.imshow('OV2740 RAW Image', cv2.resize(color_img, (640, 480)))
-        key = cv2.waitKey(1)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
+    # while True:
+    #     color_img = cam.getImage()
+    #     index += 1
+    #
+    #     if color_img is not None:
+    #         if color_img.shape[0] > 640:
+    #             cv2.imshow('OV2740 RAW Image', cv2.resize(color_img, (640, 480)))
+    #     key = cv2.waitKey(1)
+    #     if key & 0xFF == ord('q'):
+    #         cv2.destroyAllWindows()
+    #         break
 
     del cam
