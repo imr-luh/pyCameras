@@ -50,29 +50,31 @@ class Controller(ControllerTemplate):
         self.logger.info("searching camera devices")
         index = 0
 
-        cam = "CX3-UVC"
+        cam_name = "CX3-UVC"
         v4l2path = "/sys/class/video4linux"
-        for base, subs, filenames in os.walk(v4l2path, followlinks=True):
-            for filename in filenames:
-                if filename == "name":
-                    pth = os.path.join(base, filename)
-                    with open(pth, "r") as f:
-                        name = f.read()
-                        if cam in name:
-                            device_input = os.path.split(base)[1]
-                            self.device_handles.append(device_input)
-                            return 1
+        # for base, subs, filenames in os.walk(v4l2path, followlinks=True):
+        # for filenames in os.walk(v4l2path, followlinks=True):
+        #     for filename in filenames:
+        #         if filename == "name":
+        #             pth = os.path.join(base, filename)
+        #             with open(pth, "r") as f:
+        #                 device_name = f.read()
+        #
+        #                 if cam_name in device_name:
+        #                     device_input = os.path.split(base)[1]
+        #                     self.device_handles.append(device_input)
+        # return 1
 
-        # cameras = ['/dev/video0']
-        # for camera in cameras:
-        #     open(camera, 'rb+', buffering=0)
-        #     self.device_handles.append(index)
+        for item in os.listdir(v4l2path):
+            pth = os.path.join(v4l2path, item, "name")
+            if os.path.exists(pth):
+                with open(pth, "r") as f:
+                    device_name = f.read()
+                    if cam_name in device_name:
+                        device_input = str(item)
+                        self.device_handles.append(device_input)
 
-
-        # self.logger.debug('Found {num} OV2740 camera devices: {devices}'
-        #                   ''.format(num=len(self.device_handles),
-        #                             devices=self.device_handles))
-
+        return 1
 
     def getDevice(self, device_handle):
         """
@@ -171,7 +173,7 @@ class Camera(CameraTemplate):
         :return:
         """
         try:
-            self.device = open(str('/dev/' + self.devices[0]), 'rb+', buffering=0)
+            self.device = open(str('/dev/' + self.devices[-1]), 'rb+', buffering=0)
 
             print(">> get device capabilities")
             self.cp = v4l2.v4l2_capability()
@@ -316,11 +318,10 @@ class Camera(CameraTemplate):
 
             image_bytearray = bytearray(image_bytestream)
 
-            # image_struct = struct.unpack('>'+'H'*(1928*1088), image_bytes)
-
-            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
-            img_data = np.right_shift(image_array, 6).astype(np.uint16)
-            images.append(img_data)
+            # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
+            # img_data = np.right_shift(image_array, 6).astype(np.uint16)
+            # images.append(img_data)
+            images.append(image_bytearray)
             index += 1
 
         fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMOFF, self.buf_type)
@@ -452,7 +453,7 @@ class Camera(CameraTemplate):
             fcntl.ioctl(self.device, v4l2.VIDIOC_S_PARM, parm)  # just got with the defaults
 
 
-            fcntl.ioctl(self.device, v4l2.VIDIOC_ENUM_FRAMEINTERVALS, parm)  # just got with the defaults
+            # fcntl.ioctl(self.device, v4l2.VIDIOC_ENUM_FRAMEINTERVALS, parm)  # just got with the defaults
 
 
 
@@ -460,8 +461,7 @@ class Camera(CameraTemplate):
             print("fps is: ", parm.parm.capture.timeperframe.denominator)
             if not (parm.parm.capture.timeperframe.denominator == framerate):
                 return False
-            return True
-
+        return True
 
     def prepare_live(self, exposure):
         """Define live view exposure time to be less. So no overlighting occurs"""
@@ -494,7 +494,7 @@ if __name__ == '__main__':
 
     cam.setExposureMicrons(500)
     cam.setTriggerMode("Out")
-    cam.setFramerate(6)
+    cam.setFramerate(30)
 
     cv2.namedWindow('OV2740 RAW Image', cv2.WINDOW_AUTOSIZE)
     index = 0
