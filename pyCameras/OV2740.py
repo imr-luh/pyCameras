@@ -296,6 +296,7 @@ class Camera(CameraTemplate):
 
 
     def record(self):
+        start = time.time()
         fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
         fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
         images = list()
@@ -323,6 +324,8 @@ class Camera(CameraTemplate):
             index += 1
 
         fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMOFF, self.buf_type)
+        end = time.time()
+        print("capturing took: ", end-start)
         self.closeDevice()
 
         return images
@@ -427,8 +430,37 @@ class Camera(CameraTemplate):
         # TODO hardcoded resolution parameters check if getting resolution from stream is possible
         return 1920, 1080
 
-    def setFps(self):
-        pass
+    def setFramerate(self, framerate=6):
+        print(">>> streamparam")  ## somewhere in here you can set the camera framerate
+        parm = v4l2.v4l2_streamparm()
+        parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+        parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
+        fcntl.ioctl(self.device, v4l2.VIDIOC_G_PARM, parm)
+        print("fps bevor: ", parm.parm.capture.timeperframe.denominator)
+        if (parm.parm.capture.timeperframe.denominator != framerate):
+            parm.parm.capture.timeperframe.denominator = framerate
+            if framerate == 30:
+                parm.parm.capture.timeperframe.numerator = 1
+            elif framerate == 15:
+                parm.parm.capture.timeperframe.numerator = 2
+            elif framerate == 10:
+                parm.parm.capture.timeperframe.numerator = 3
+            elif framerate == 6:
+                parm.parm.capture.timeperframe.numerator = 4
+
+            print("fps to set: ", parm.parm.capture.timeperframe.denominator)
+            fcntl.ioctl(self.device, v4l2.VIDIOC_S_PARM, parm)  # just got with the defaults
+
+
+            fcntl.ioctl(self.device, v4l2.VIDIOC_ENUM_FRAMEINTERVALS, parm)  # just got with the defaults
+
+
+
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_PARM, parm)
+            print("fps is: ", parm.parm.capture.timeperframe.denominator)
+            if not (parm.parm.capture.timeperframe.denominator == framerate):
+                return False
+            return True
 
 
     def prepare_live(self, exposure):
@@ -462,11 +494,11 @@ if __name__ == '__main__':
 
     cam.setExposureMicrons(500)
     cam.setTriggerMode("Out")
-    # cam.setFramerate(6)
+    cam.setFramerate(6)
 
     cv2.namedWindow('OV2740 RAW Image', cv2.WINDOW_AUTOSIZE)
     index = 0
-    cam.prepareRecording(10)
+    cam.prepareRecording(100)
     images = cam.record()
 
     # while True:
