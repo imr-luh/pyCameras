@@ -14,6 +14,7 @@ import cv2
 import matplotlib.pyplot as plt
 import os
 import time
+import colour_demosaicing
 from threading import Event
 import sys
 import copy
@@ -145,14 +146,12 @@ class Camera(CameraTemplate):
             raise ConnectionError
 
         self.img_data = []
-        self.Exposure = 0
         self._expected_images = 0
-        self.framerate = 6
 
-        self.aligned_frames = 0
-
-        self.TriggerMode = None
         self.openDevice()
+        self.registerFeatures()
+
+
 
 
     @staticmethod
@@ -165,6 +164,28 @@ class Camera(CameraTemplate):
         List of camera device handles that can be used to create a new camera instance
         """
         return Controller().listDevices()
+
+    def registerFeatures(self):
+        """
+        Registration of shared features that should be the same for all camera
+        implementations. E.g. ExposureMicrons, Resolution, Gain, Format and
+        TriggerMode
+        """
+        self.logger.debug('Registering camera features')
+
+        self.registerFeature('ExposureMicrons', self.setExposureMicrons)
+        # self.registerFeature('ExposureTime', self.setExposureMicrons)
+        # self.registerFeature('Exposure', self.setExposureMicrons)
+
+        self.registerFeature('Resolution', self.setResolution)
+
+        # self.registerFeature('Gain', self.setGain)
+        self.registerFeature('Format', self._getFormat)
+
+        self.registerFeature('TriggerMode', self.setTriggerMode)
+        # self.registerFeature('Trigger', self.setTriggerMode)
+
+        self.registerFeature('Framerate', self.setFramerate)
 
     def openDevice(self):
         """
@@ -185,16 +206,6 @@ class Camera(CameraTemplate):
             print("Supports read() call?", bool(self.cp.capabilities & v4l2.V4L2_CAP_READWRITE))
             print("Supports streaming?", bool(self.cp.capabilities & v4l2.V4L2_CAP_STREAMING))
 
-            print(">> device setup")
-            self.fmt = v4l2.v4l2_format()
-            self.fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-            fcntl.ioctl(self.device, v4l2.VIDIOC_G_FMT, self.fmt)  # get current settings
-            print("width:", self.fmt.fmt.pix.width, "height", self.fmt.fmt.pix.height)
-            print("pxfmt:", "V4L2_PIX_FMT_YUYV" if self.fmt.fmt.pix.pixelformat == v4l2.V4L2_PIX_FMT_YUYV else self.fmt.fmt.pix.pixelformat)
-            print("bytesperline:", self.fmt.fmt.pix.bytesperline)
-            print("sizeimage:", self.fmt.fmt.pix.sizeimage)
-            fcntl.ioctl(self.device, v4l2.VIDIOC_S_FMT, self.fmt)
-
             print(">>> streamparam")  ## somewhere in here you can set the camera framerate
             self.parm = v4l2.v4l2_streamparm()
             self.parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
@@ -211,6 +222,40 @@ class Camera(CameraTemplate):
             # stream_type = self.stream_profile.stream_type()
             # format = self.stream_profile.format()
             # fps = self.stream_profile.fps()
+
+    def _getFormat(self):
+        """
+        Set the image format to the passed setting or read the current format
+        by passing None
+
+        Parameters
+        ----------
+        fmt : str
+            String describing the desired image format (e.g. "Mono8" or
+            "Mono10"), or None to read the current image format
+
+        Returns
+        -------
+        fmt : str
+            The image format after applying the passed value
+        """
+        try:
+            print(">> device setup")
+            fmt = v4l2.v4l2_format()
+            fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            fcntl.ioctl(self.device, v4l2.VIDIOC_G_FMT, self.fmt)  # get current settings
+            self.device.ImageWidth = fmt.fmt.pix.width
+            self.device.ImageHeight = fmt.fmt.pix.height
+            self.device.PixelFormat = fmt.fmt.pix.pixelformat
+            self.device.BytesPerLine = fmt.fmt.pix.bytesperline
+            self.device.SizeImage = fmt.fmt.pix.sizeimage
+
+            # fcntl.ioctl(self.device, v4l2.VIDIOC_S_FMT, self.fmt)
+
+        except Exception as e:
+            self.logger.exception(e)
+        return self.device.PixelFormat
+
 
     def closeDevice(self):
         """
@@ -297,12 +342,13 @@ class Camera(CameraTemplate):
         self.logger.info(f"Prepare recording {num} images")
 
 
+
     def record(self):
-        start = time.time()
         fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
         fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+        self.logger.info(f"Recording {self._expected_images}, ignore empty image")
+        start = time.time()
         images = list()
-        self.logger.info(f"Recording {self._expected_images}")
         index = 0
         for i in range(self._expected_images):  # capture 50 frames
             print(f"Frame : {index}")
@@ -317,17 +363,13 @@ class Camera(CameraTemplate):
             fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
 
             image_bytearray = bytearray(image_bytestream)
-
-            # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
-            # img_data = np.right_shift(image_array, 6).astype(np.uint16)
-            # images.append(img_data)
             images.append(image_bytearray)
             index += 1
 
         fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMOFF, self.buf_type)
         end = time.time()
         print("capturing took: ", end-start)
-        self.closeDevice()
+        # self.closeDevice()
 
         return images
 
@@ -336,11 +378,11 @@ class Camera(CameraTemplate):
         Get an image from the camera
 
         :return: image : np.ndarray
-            Image of active sensor from realsense device
+            Image of camera device
         """
-
-        if self.stream_started is False:
-            self.openDevice()
+        fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+        fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+        self.logger.info(f"get single image, ignore empty image")
 
         fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
         # print("buf.index", buf.index)
@@ -353,12 +395,38 @@ class Camera(CameraTemplate):
 
         image_bytearray = bytearray(image_bytestream)
 
-        # image_struct = struct.unpack('>'+'H'*(1928*1088), image_bytes)
-
         image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_bytearray).astype(np.uint16)
         image = np.right_shift(image_array, 6).astype(np.uint16)
 
-        return image#4mm endo
+        return image
+
+    def postProcessImage(self, images):
+        if isinstance(images, list):
+            rgbImages= list()
+            for image in images:
+                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
+                rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.8)
+                rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.7)
+                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
+
+                demosaic_norm = demosaic_img.copy() / np.max(demosaic_img)
+
+                image = demosaic_img.copy().astype(np.uint16)
+                rgbImages.append(image)
+        else:
+            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=images).astype(np.uint16)
+            rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+            rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.8)
+            rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.7)
+            demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
+
+            demosaic_norm = demosaic_img.copy() / np.max(demosaic_img)
+
+            rgbImages = demosaic_img.copy().astype(np.uint16)
+
+
+        return rgbImages
 
     def setExposureMicrons(self, microns=None):
         """
@@ -389,7 +457,7 @@ class Camera(CameraTemplate):
             gc = v4l2.v4l2_control()
             gc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
             fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
-            print("exposure_curr", gc.value)
+            print("exposure before: ", gc.value)
 
             # set control value
             gc.value = microns
@@ -400,7 +468,7 @@ class Camera(CameraTemplate):
             fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
             print("exposure is", gc.value)
 
-            self.Exposure = microns
+            self.ExposureMicrons = microns
 
         return microns
 
@@ -492,14 +560,15 @@ if __name__ == '__main__':
 
     cam = Camera(available_devices)
 
-    cam.setExposureMicrons(500)
     cam.setTriggerMode("Out")
     cam.setFramerate(30)
+    cam.setExposureMicrons(500)
 
     cv2.namedWindow('OV2740 RAW Image', cv2.WINDOW_AUTOSIZE)
     index = 0
-    cam.prepareRecording(100)
+    cam.prepareRecording(10)
     images = cam.record()
+    rgbImages = cam.postProcessImage(images)
 
     # while True:
     #     color_img = cam.getImage()
