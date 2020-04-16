@@ -205,10 +205,10 @@ class Camera(CameraTemplate, ABC):
             gc = v4l2.v4l2_control()
             gc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
             fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
-            self.ExposureMicrons = gc.value
+            self.ExposureMicrons = gc.value * 100  # v4l2 compensation
 
             self.logger.debug(
-                f'Min exposure time {qc.minimum}us, max {qc.maximum}us, default {qc.default}us, Steps {qc.step}us, Current {gc.value}us')
+                f'Min exposure time {qc.minimum *100}us, max {qc.maximum *100}us, default {qc.default*100}us, Steps {qc.step*100}us, current {gc.value*100}us')
             return qc, gc
 
         except Exception as e:
@@ -455,23 +455,26 @@ class Camera(CameraTemplate, ABC):
 
         if microns is not None:
             try:
-                self.logger.debug(f'Setting exposure time to {microns}us')
+
                 qc, gc = self.getExposureInfo()
 
-                if microns == gc.value:
+                self.logger.debug(f'Setting exposure time to {microns}us')
+
+                # v4l interprets 1 as 100us -> devide microns by 100 to get the correct value
+                v4l2_exposure = int(microns / 100)
+                if v4l2_exposure == gc.value:
                     self.logger.debug(f'Exposure time was already set to {microns}us')
                     self.ExposureMicrons = microns
 
-                elif microns != gc.value and qc.minimum <= microns <= qc.maximum:
+                elif v4l2_exposure != gc.value and qc.minimum <= v4l2_exposure <= qc.maximum:
                     # set control value
-                    gc.value = microns
+                    gc.value = v4l2_exposure
                     fcntl.ioctl(self.device, v4l2.VIDIOC_S_CTRL, gc)
-                    print("exposure set to: ", gc.value)
 
                     # get control value
                     fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
 
-                    if microns == gc.value:
+                    if v4l2_exposure == gc.value:
                         self.ExposureMicrons = microns
                         return microns
                 else:
@@ -532,7 +535,7 @@ if __name__ == '__main__':
 
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(100)
+    cam.setExposureMicrons(8500)
 
     expectedImages = 10
 
