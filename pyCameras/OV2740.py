@@ -126,10 +126,13 @@ class Camera(CameraTemplate, ABC):
         self._expected_images = 0
         self.ExposureMicrons = 0
         self.TriggerMode = None
+        self.buffers = []
+        self.buf = None
+        self.buf_type = None
 
         self.openDevice()
         self.registerSharedFeatures()
-        # self.getCapability()
+        self.getCapability()
 
     @staticmethod
     def listDevices():
@@ -197,20 +200,15 @@ class Camera(CameraTemplate, ABC):
             qc = v4l2.v4l2_queryctrl()
             qc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
             fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYCTRL, qc)
-            exposureDefault = qc.default
-            exposureMin = qc.min
-            exposureMax = qc.max
-            exposureStep = qc.step
 
             # get control value
             gc = v4l2.v4l2_control()
             gc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
             fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
-            exposureCurrent = gc.value
-            self.ExposureMicrons = exposureCurrent
+            self.ExposureMicrons = gc.value
 
             self.logger.debug(
-                f'Min exposure time {exposureMin}us, max {exposureMax}us, default {exposureDefault}us, Steps {exposureStep}us, Current {exposureCurrent}us')
+                f'Min exposure time {qc.minimum}us, max {qc.maximum}us, default {qc.default}us, Steps {qc.step}us, Current {gc.value}us')
             return qc, gc
 
         except Exception as e:
@@ -306,16 +304,17 @@ class Camera(CameraTemplate, ABC):
 
     def prepareRecording(self, num):
         try:
-            print(">> init mmap capture")
+            self.logger.debug(f"init mmap capture, creating buffer etc.")
             req = v4l2.v4l2_requestbuffers()
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
             req.count = 1  # nr of buffer frames
+            # req.count = self._expected_images  # nr of buffer frames
             fcntl.ioctl(self.device, v4l2.VIDIOC_REQBUFS, req)  # tell the driver that we want some buffers
-            print("req.count", req.count)
+            # print("req.count", req.count)
 
-            self.buffers = []
-            print(">>> VIDIOC_QUERYBUF, mmap, VIDIOC_QBUF")
+
+            # print(">>> VIDIOC_QUERYBUF, mmap, VIDIOC_QBUF")
             for ind in range(req.count):
                 # setup a buffer
                 self.buf = v4l2.v4l2_buffer()
@@ -463,7 +462,7 @@ class Camera(CameraTemplate, ABC):
                     self.logger.debug(f'Exposure time was already set to {microns}us')
                     self.ExposureMicrons = microns
 
-                elif microns != gc.value and qc.minimum < microns < qc.max:
+                elif microns != gc.value and qc.minimum <= microns <= qc.maximum:
                     # set control value
                     gc.value = microns
                     fcntl.ioctl(self.device, v4l2.VIDIOC_S_CTRL, gc)
@@ -533,21 +532,23 @@ if __name__ == '__main__':
 
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(10)
+    cam.setExposureMicrons(100)
 
     expectedImages = 10
 
     cam.prepareRecording(expectedImages)
     rawImages = cam.record()
 
-    rgbImages = cam.postProcessImage(rawImages)
-    # image = rgbImages[9]
+    # cam.prepareRecording(expectedImages)
+    # rawImages = cam.record()
+    #
+    # cam.prepareRecording(expectedImages)
+    # rawImages = cam.record()
 
-    # plt.imshow(image)
-    # plt.show()
+    rgbImages = cam.postProcessImage(rawImages)
 
     for i in range(0, expectedImages):
-        plt.imshow(rgbImages[i])
+        plt.imshow(rgbImages[i].astype(np.uint8))
         plt.show()
 
     del cam
