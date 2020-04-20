@@ -20,6 +20,7 @@ import colour_demosaicing
 from threading import Event
 import sys
 import copy
+from skimage import color
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
@@ -409,32 +410,44 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
 
-    def postProcessImage(self, images):
+    def postProcessImage(self, raw_images, colour=False):
         if isinstance(images, list):
-            rgbImages = list()
-            for image in images:
+            images = list()
+            for image in raw_images:
                 image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
                 rawImage = np.right_shift(image_array, 6).astype(np.uint16)
                 rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.8)
                 rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.7)
                 demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
 
-                demosaic_norm = demosaic_img.copy() / np.max(demosaic_img)
+                # demosaic_norm_max_value = demosaic_img.copy() / np.max(demosaic_img)
+                # norm_image = cv2.normalize(demosaic_img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+                norm_image = demosaic_img.copy() / 1023
+                # image = demosaic_img.copy().astype(np.uint16)
+                image_8Bit = norm_image * 255
 
-                image = demosaic_img.copy().astype(np.uint16)
-                rgbImages.append(image)
+                if not colour:
+                    image = color.rgb2gray(image_8Bit)
+                else:
+                    image = image_8Bit
+
+                images.append(image)
         else:
-            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=images).astype(np.uint16)
+            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=raw_images).astype(np.uint16)
             rawImage = np.right_shift(image_array, 6).astype(np.uint16)
             rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.8)
             rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.7)
             demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
 
-            demosaic_norm = demosaic_img.copy() / np.max(demosaic_img)
+            norm_image = demosaic_img.copy() / 1023
+            image_8Bit = norm_image * 255
 
-            rgbImages = demosaic_img.copy().astype(np.uint16)
+            if not colour:
+                images = color.rgb2gray(image_8Bit)
+            else:
+                images = image_8Bit
 
-        return rgbImages
+        return images
 
     def setExposureMicrons(self, microns=None):
         """
@@ -534,8 +547,8 @@ if __name__ == '__main__':
     cam = Camera(available_devices)
 
     cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(8500)
+    cam.setFramerate(framerate=10)
+    cam.setExposureMicrons(20000)
 
     expectedImages = 10
 
@@ -548,10 +561,12 @@ if __name__ == '__main__':
     # cam.prepareRecording(expectedImages)
     # rawImages = cam.record()
 
-    rgbImages = cam.postProcessImage(rawImages)
+    rgbImages = cam.postProcessImage(rawImages, colour=False)
+
 
     for i in range(0, expectedImages):
         plt.imshow(rgbImages[i].astype(np.uint8))
+        plt.colorbar()
         plt.show()
 
     del cam
