@@ -180,8 +180,8 @@ class Camera(CameraTemplate, ABC):
             # print("Driver:", "".join((chr(c) for c in cp.driver)))
             # print("Name:", "".join((chr(c) for c in cp.card)))
             # print("Is a video capture device?", bool(cp.capabilities & v4l2.V4L2_CAP_VIDEO_CAPTURE))
-            self.logger.debug(f'Sensor supports read() call: {bool(cp.capabilities & v4l2.V4L2_CAP_READWRITE)}')
-            self.logger.debug(f'Sensor supports streaming: {bool(cp.capabilities & v4l2.V4L2_CAP_STREAMING)}')
+            # self.logger.debug(f'Sensor supports read() call: {bool(cp.capabilities & v4l2.V4L2_CAP_READWRITE)}')
+            # self.logger.debug(f'Sensor supports streaming: {bool(cp.capabilities & v4l2.V4L2_CAP_STREAMING)}')
             return cp
 
         except Exception as e:
@@ -387,8 +387,49 @@ class Camera(CameraTemplate, ABC):
             Image of camera device
         """
         try:
+            images = list()
+            self.logger.debug(f"init mmap capture, creating buffer etc.")
+            req = v4l2.v4l2_requestbuffers()
+            req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            req.memory = v4l2.V4L2_MEMORY_MMAP
+            req.count = 1  # nr of buffer frames
+            # req.count = self._expected_images  # nr of buffer frames
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
+            # print("req.count", req.count)
+
+            # print(">>> VIDIOC_QUERYBUF, mmap, VIDIOC_QBUF")
+            for ind in range(req.count):
+                # setup a buffer
+                self.buf = v4l2.v4l2_buffer()
+                self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+                self.buf.memory = v4l2.V4L2_MEMORY_MMAP
+                self.buf.index = ind
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
+
+                mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+                               offset=self.buf.m.offset)
+                self.buffers.append(mm)
+
+                # queue the buffer for capture
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
+
+            self.logger.info("Sensor starts streaming")
+
+            self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
+
+            t0 = time.time()
+            max_t = 1
+            ready_to_read, ready_to_write, in_error = ([], [], [])
+
+            while len(ready_to_read) == 0 and time.time() - t0 < max_t:
+                ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
+
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
+
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
             self.logger.info(f"get single image, ignore empty image")
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
@@ -404,11 +445,11 @@ class Camera(CameraTemplate, ABC):
 
             image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_byte_array).astype(np.uint16)
             image = np.right_shift(image_array, 6).astype(np.uint16)
-
-            return image
+            images.append(image)
+            return images
 
         except Exception as e:
-            self.logger.exception(f"Failed to open the camera device: {e}")
+            self.logger.exception(f"Failed to get an image from Sensor: {e}")
 
     def postProcessImage(self, raw_images, colour=False):
         if isinstance(raw_images, list):
@@ -497,29 +538,26 @@ class Camera(CameraTemplate, ABC):
                 self.logger.exception(f"Failed to set exposure time: {e}")
 
     def setFramerate(self, framerate=6):
-        parm = v4l2.v4l2_streamparm()
-        parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-        parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
-        fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
-        print("fps before: ", parm.parm.capture.timeperframe.denominator)
-        if parm.parm.capture.timeperframe.denominator != framerate:
-            parm.parm.capture.timeperframe.denominator = framerate
-            if framerate == 30:
-                parm.parm.capture.timeperframe.numerator = 1
-            elif framerate == 15:
-                parm.parm.capture.timeperframe.numerator = 2
-            elif framerate == 10:
-                parm.parm.capture.timeperframe.numerator = 3
-            elif framerate == 6:
-                parm.parm.capture.timeperframe.numerator = 4
 
-            print("fps to set: ", parm.parm.capture.timeperframe.denominator)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_S_PARM), parm)  # just got with the defaults
+        try:
+            parm = v4l2.v4l2_streamparm()
+            parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
-            print("fps is: ", parm.parm.capture.timeperframe.denominator)
-            if not (parm.parm.capture.timeperframe.denominator == framerate):
-                return False
-        return True
+
+            self.logger.debug(f'Set frame rate from {parm.parm.capture.timeperframe.denominator} fps to {framerate} fps')
+
+            if parm.parm.capture.timeperframe.denominator != framerate:
+                parm.parm.capture.timeperframe.denominator = framerate
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_S_PARM), parm)
+                time.sleep(0.2)
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
+
+                if not (parm.parm.capture.timeperframe.denominator == framerate):
+                    raise Exception
+
+        except Exception as e:
+            self.logger.exception(f"Failed to set frame rate {framerate} fps: {e}")
 
     def prepare_live(self, exposure):
         # Todo: edit this
@@ -547,16 +585,26 @@ if __name__ == '__main__':
     cam = Camera(available_devices[-1])
 
     cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=10)
+    cam.setFramerate(framerate=6)
     cam.setExposureMicrons(20000)
 
     expectedImages = 10
 
+
+
     cam.prepareRecording(expectedImages)
     rawImages = cam.record()
 
+    # rawImages = cam.getImage()
+
+    # cam.setFramerate(framerate=10)
+    # cam.setExposureMicrons(30000)
+    #
     # cam.prepareRecording(expectedImages)
     # rawImages = cam.record()
+    #
+    # cam.setFramerate(framerate=15)
+    # cam.setExposureMicrons(9000)
     #
     # cam.prepareRecording(expectedImages)
     # rawImages = cam.record()
@@ -564,7 +612,8 @@ if __name__ == '__main__':
     Images = cam.postProcessImage(rawImages, colour=False)
 
 
-    for i in range(0, expectedImages):
+    for i in range(0, len(Images)):
+        print(f"average {np.average(Images[i])}")
         plt.imshow(Images[i].astype(np.uint8))
         plt.colorbar()
         plt.show()
