@@ -23,7 +23,9 @@ import time
 import logging
 
 import numpy as np
-from pymba import Vimba
+
+from vimba.vimba import Vimba
+from vimba.error import VimbaCameraError, VimbaFeatureError
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
@@ -45,11 +47,6 @@ class Controller(ControllerTemplate):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         self.logger.debug('Starting AVT Camera Controller')
-        self._vimba = Vimba()
-        self._vimba.startup()
-        self.__system = self._vimba.getSystem()
-        self.__system.runFeatureCommand('GeVDiscoveryAllOnce')
-        time.sleep(0.2)
 
     def updateDeviceHandles(self):
         """
@@ -57,12 +54,13 @@ class Controller(ControllerTemplate):
         """
         self.logger.debug('Searching for AVT camera devices')
         self.device_handles = []
-        cams = self._vimba.getCameraIds()
-        for cam_id in cams:
-            tmp = self._vimba.getCamera(cam_id)
+        with Vimba.get_instance() as vimba:
+            cams = vimba.get_all_cameras()
+
+        for cam in cams:
             self.device_handles.append('<AVT {model} (MAC: {mac})>'
-                                       ''.format(model=tmp._info.modelName,
-                                                 mac=tmp._info.cameraIdString))
+                                       ''.format(model=cam.get_name(),
+                                                 mac=cam.get_id()))
 
     def getDevice(self, device_handle):
         """
@@ -71,7 +69,7 @@ class Controller(ControllerTemplate):
         Parameters
         ----------
         device_handle : can be IP address, mac address or
-                        camera ID (DEV_...) as reported by vimba.getCameraIds
+                        camera ID (DEV_...) as reported by Camera.get_id()
 
         Returns
         -------
@@ -104,7 +102,6 @@ class Controller(ControllerTemplate):
             raise
 
     def closeController(self):
-        self._vimba.shutdown()
         self.logger.info("Vimba Camera Controller shutdown")
 
     def __repr__(self):
@@ -120,7 +117,7 @@ class Camera(CameraTemplate):
     into freerun mode.
     """
 
-    def __init__(self, device_handle, vimba=None):
+    def __init__(self, device_handle):
         """
         Implementation of the AVT camera device
 
@@ -129,40 +126,21 @@ class Camera(CameraTemplate):
         device_handle : object
             Unique camera device handle to identify the camera
         """
-        if vimba is None:
-            self._vimba = Vimba()
-            self._vimba.startup()
-            self.__system = self._vimba.getSystem()
-            self.__system.runFeatureCommand('GeVDiscoveryAllOnce')
-            time.sleep(0.2)
-        else:
-            self._vimba = vimba
         super(Camera, self).__init__(device_handle)
         self.logger = logging.getLogger(__name__)
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
 
-        self.device = self._vimba.getCamera(self._checkDeviceHandle(device_handle))
+        with Vimba.get_instance() as vimba:
+            # Device handle may be MAC address (camera_id) or IP
+            self.device = vimba.get_camera_by_id(device_handle)
+
+        # Sets package sizes and transfer rates for GigE cameras
+        self._setup_transfer_sizes()
+
         self.device_handle = device_handle
-        self.camId = None
 
-        self.modelName = self.device._info.modelName
         self.triggerModeSetting = 'off'
-
-        # Open device and activate freerun mode
-        self.openDevice()
-        # time.sleep(0.2)
-        self.device.TriggerMode = 'Off'
-
-        self.device.GevSCPSPacketSize = 1500  # Automatic setting not yet implemented in pymba (date: 11.12.17)
-        # Influences framerate, necessary if network bandwidth is not big enough
-        # NOTE: Functions self._setMaxTransferRate, self._setTransferRate and self._setNumberCams may change this value
-        # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
-        self.device.StreamBytesPerSecond = 115000000  # 100 Mb/sec (with GigE)
-
-        self.maxTransferRate = 115000000
-        self.numCams = 1
-        self.isSet = {'rate': False, 'numCams': False}
 
         # Register AVT specific functions.
         # Function to set maximum transfer rate depending on used network specifications
@@ -170,10 +148,6 @@ class Camera(CameraTemplate):
         self.registerFeature('bandwidth', self._setMaxTransferRate)
         self.registerFeature('maximumTransferRate', self._setMaxTransferRate)
         self.registerFeature('transferRate', self._setTransferRate)
-        # Function to set number of cameras, may affect the available transfer rate per camera
-        self.registerFeature('numCams', self._setNumberCams)
-        self.registerFeature('numberCams', self._setNumberCams)
-        self.registerFeature('numberOfCameras', self._setNumberCams)
         # Function to set pixel format
         self.registerFeature('pixelFormat', self.setFormat)
         self.registerFeature('pixelType', self.setFormat)
@@ -187,162 +161,19 @@ class Camera(CameraTemplate):
         self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
 
     def __del__(self):
-        # self._cleanUp()
-        self._vimba.shutdown()
+        pass
 
-    def _checkDeviceHandle(self, device_handle):
-        """
-        Return the corresponding camera object for given device handle
+    def _setup_transfer_sizes(self):
+        with self.device as cam:
+            # Try to adjust GeV packet size. This Feature is only available for GigE - Cameras.
+            try:
+                cam.GVSPAdjustPacketSize.run()
 
-        Parameters
-        ----------
-        device_handle : can be IP address, mac address or
-                        camera ID (DEV_...) as reported by vimba.getCameraIds
+                while not cam.GVSPAdjustPacketSize.is_done():
+                    pass
 
-        Returns
-        -------
-        cam : Camera object
-            A camera object for AVT devices corresponding to the given
-            device handle
-        """
-        # Check if device handle is list or tuple, if so: use first entry
-        if isinstance(device_handle, (list, tuple)):
-            device_handle = device_handle[0]
-
-        self.logger.debug('Opening device {device_handle}'
-                          ''.format(device_handle=device_handle))
-        # Search for mac addresses in form 'DEV_XXXXXXXXXXXX'
-        candidates = re.findall(r'([0-9A-Z]{11,13})', device_handle)
-        if len(candidates) == 0:
-            # no mac address found: search for IP
-            candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
-
-        return candidates[0]
-
-    def _setMaxTransferRate(self, rate=None):
-        """
-        Sets the transfer rate by changing 'StreamBytesPerSecond'.
-        If passed None, will return actual rate set.
-
-        Parameters
-        ----------
-        rate: int
-            Maximum bandwidth available. Typical values:
-            - with GigE     : 115000000
-            - without GigE  : 10000000
-
-        Returns
-        -------
-        self.max_bandwidth: int
-            If passed None: returns set bandwidth
-        """
-        self.logger.debug("Setting max transfer rate for device {handle} to {rate}"
-                          "".format(handle=self.device_handle, rate=rate))
-        if rate is None:
-            return self.maxTransferRate
-        self.maxTransferRate = rate
-        self.isSet['rate'] = True
-
-        # Call function if number of cams was set
-        if self.isSet['numCams']:
-            self._setTransferRate()
-        else:
-            self.device.StreamBytesPerSecond = rate
-
-        return self.maxTransferRate
-
-    def _setNumberCams(self, num=None):
-        """
-        Sets the number of AVT cameras used (this will affect the maximum transfer rate for each camera).
-        If passed None, will return actual number of cameras set.
-
-        Parameters
-        ----------
-        num: int
-            Number of AVT cameras
-
-        Returns
-        -------
-        self.numCams: int
-            Number of AVT cameras set for this object
-        """
-        self.logger.debug("Setting number of cameras for device {handle} to {num}"
-                          "".format(handle=self.device_handle, num=num))
-        if num is None:
-            return self.numCams
-        self.numCams = num
-        self.isSet['numCams'] = True
-
-        if self.isSet['rate']:
-            self._setTransferRate()
-
-        return self.numCams
-
-    def _setTransferRate(self):
-        """
-        Takes maxTransferRate and numCams to compute a viable transfer rate for the device.
-        """
-        transfer_rate = int(self.maxTransferRate / self.numCams)
-        self.device.StreamBytesPerSecond = transfer_rate
-        self.logger.debug("Setting transfer rate for {device} to {rate}"
-                          "".format(device=self.device_handle, rate=transfer_rate))
-
-    def _clearQueueAndFrames(self):
-        """
-        Does some cleanup jobs. Call after whenever you feel like there might be a buffer overflow.
-        Calls:  - flushCaptureQueue()
-                - revokeAllFrames()
-        """
-        self.device.flushCaptureQueue()
-        self.device.revokeAllFrames()
-
-    def _cleanUp(self):
-        """
-        Does some cleanup jobs. Call after "AcquisitionStop".
-        Calls:  - endCapture()
-                - flushCaptureQueue()
-                - revokeAllFrames()
-        """
-        self.device.endCapture()
-        self._clearQueueAndFrames()
-
-    def _frameCallback(self, frame):
-        """
-        Callback function to fill frames with data
-
-        Parameters
-        -------
-        frame : frame object
-            frame created by device.getFrame()
-        """
-        frame.waitFrameCapture(1000)
-        # Get image data ...
-        singleImg = np.ndarray(buffer=frame.getBufferByteData(),
-                               dtype=self.imageFormatLUT[self.device.PixelFormat],
-                               shape=(frame.height,
-                                      frame.width))
-
-        self.imgData.append(singleImg)
-        frame.queueFrameCapture(self._frameCallback)
-
-    def _getCamId(self):
-        """
-        Creates a cam-specific cam id, which consists of the manufacturer and a
-        4 digit number. This id makes it possible to identify the virtual
-        object with real object.
-
-        Returns
-        -------
-        camId : "unique" cam id
-        """
-        if self.camId is None:
-            mfr = b'AVT'  # mfr = manufacturer
-            id = self.device._info.cameraIdString[-4:]
-            camId = b'_'.join((mfr, id)).decode('utf-8')
-
-            return camId
-        else:
-            return self.camId
+            except (AttributeError, VimbaFeatureError):
+                pass
 
     @staticmethod
     def listDevices():
@@ -363,7 +194,6 @@ class Camera(CameraTemplate):
 
         try:
             self.logger.debug('Opening camera device')
-            self.device.openCamera()
         except Exception as e:
             self.logger.exception('Failed to open the camera device: '
                                   '{e}'.format(e=e))
@@ -575,9 +405,11 @@ class Camera(CameraTemplate):
         """
         try:
             self.logger.debug('Listing camera features')
-            featureNames = self.device.getFeatureNames()
-            print("Printing feature names: ...\n")
-            print("\n".join(featureNames))
+            with self.device as cam:
+                for feature in cam.get_all_features():
+                    print("-------------------")
+                    print("Feature name: {}".format(feature.get_name()))
+                    print("Value       : {value} {units}".format(value=feature.get(), units=feature.get_unit()))
         except Exception as e:
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
@@ -598,11 +430,14 @@ class Camera(CameraTemplate):
         microns : int
             The exposure time in microseconds after applying the passed value
         """
-        if microns is not None:
-            self.logger.debug('Setting <ExposureTime> to {microns}'
-                              ''.format(microns=microns))
-            self.device.ExposureTimeAbs = microns
-        return self.device.ExposureTimeAbs
+        with self.device as cam:
+            if microns is not None:
+                self.logger.debug('Setting <ExposureTime> to {microns}'
+                                  ''.format(microns=microns))
+                exposure_time_feature = cam.ExposureTimeAbs
+                exposure_time_feature.set(microns)
+
+            return exposure_time_feature.get()
 
     def autoExposure(self):
         """
@@ -615,58 +450,61 @@ class Camera(CameraTemplate):
             The exposure time in microseconds after auto exposure
         """
         self.logger.debug("Starting automatic exposure control")
-        self.device.ExposureAuto = "Once"
-        # Save trigger settings and activate acquisition until
-        # auto exposure has settled
-        triggerMode_buffer = self.triggerMode
+        with self.device as cam:
+            exposure_auto_feature = cam.ExposureAuto
+            exposure_auto_feature.set("Once")
+            # TODO: Finish
+            # Save trigger settings and activate acquisition until
+            # auto exposure has settled
+            triggerMode_buffer = self.triggerMode
 
-        frame = self.device.getFrame()
-        frame.announceFrame()
+            frame = self.device.getFrame()
+            frame.announceFrame()
 
-        self.device.startCapture()
+            self.device.startCapture()
 
-        self.triggerMode = "off"
-        max_iter = 100
-        iter = 0
-        # Auto exposure gets stuck if the border values are reached,
-        # but further adjustments are necessary
-        limits = (self.device.ExposureAutoMin, self.device.ExposureAutoMax)
-        limit_cnt = 0
-        last_exposure = -1
+            self.triggerMode = "off"
+            max_iter = 100
+            iter = 0
+            # Auto exposure gets stuck if the border values are reached,
+            # but further adjustments are necessary
+            limits = (self.device.ExposureAutoMin, self.device.ExposureAutoMax)
+            limit_cnt = 0
+            last_exposure = -1
 
-        self.device.runFeatureCommand("AcquisitionStart")
-        while self.device.ExposureAuto != "Off":
-            if last_exposure in limits:
-                limit_cnt += 1
-            else:
-                limit_cnt = 0
-            try:
-                frame.queueFrameCapture()
-            except Exception:
-                pass
-            frame.waitFrameCapture(1000)
-            iter += 1
-            last_exposure = self.device.ExposureTimeAbs
-            if limit_cnt > 5:
-                self.logger.info("Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
-                    exposure=last_exposure))
-                self.device.ExposureAuto = "Off"
-            if iter >= max_iter:
+            self.device.runFeatureCommand("AcquisitionStart")
+            while self.device.ExposureAuto != "Off":
+                if last_exposure in limits:
+                    limit_cnt += 1
+                else:
+                    limit_cnt = 0
                 try:
-                    raise TimeoutError("Timeout while setting auto exposure!")
-                except NameError:
-                    # Python 2 compatible Error
-                    raise Exception("Timeout while setting auto exposure!")
+                    frame.queueFrameCapture()
+                except Exception:
+                    pass
+                frame.waitFrameCapture(1000)
+                iter += 1
+                last_exposure = self.device.ExposureTimeAbs
+                if limit_cnt > 5:
+                    self.logger.info("Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
+                        exposure=last_exposure))
+                    self.device.ExposureAuto = "Off"
+                if iter >= max_iter:
+                    try:
+                        raise TimeoutError("Timeout while setting auto exposure!")
+                    except NameError:
+                        # Python 2 compatible Error
+                        raise Exception("Timeout while setting auto exposure!")
 
-        # Cleanup
-        self.device.runFeatureCommand("AcquisitionStop")
-        self._cleanUp()
+            # Cleanup
+            self.device.runFeatureCommand("AcquisitionStop")
+            self._cleanUp()
 
-        self.triggerMode = triggerMode_buffer
-        self.logger.debug("Set exposure time to {exposure}"
-                          "".format(exposure=self.device.ExposureTimeAbs))
+            self.triggerMode = triggerMode_buffer
+            self.logger.debug("Set exposure time to {exposure}"
+                              "".format(exposure=self.device.ExposureTimeAbs))
 
-        return self.device.ExposureTimeAbs
+            return self.device.ExposureTimeAbs
 
     def setResolution(self, resolution=None):
         """
@@ -684,14 +522,17 @@ class Camera(CameraTemplate):
         resolution : tuple
             The set camera resolution after applying the passed value
         """
-        if resolution is not None:
-            self.logger.debug('Setting <Width> to {width}'
-                              ''.format(width=resolution[0]))
-            self.device.Width = resolution[0]
-            self.logger.debug('Setting <Height> to {height}'
-                              ''.format(height=resolution[1]))
-            self.device.Height = resolution[1]
-        return self.device.Width, self.device.Height
+        with self.device as cam:
+            height_feature = cam.Height
+            width_feature = cam.Width
+            if resolution is not None:
+                self.logger.debug('Setting <Width> to {width}'
+                                  ''.format(width=resolution[0]))
+                width_feature.set(resolution[0])
+                self.logger.debug('Setting <Height> to {height}'
+                                  ''.format(height=resolution[1]))
+                height_feature.set(resolution[1])
+            return width_feature.get(), height_feature.get()
 
     def setGain(self, gain=None):
         """
@@ -709,11 +550,13 @@ class Camera(CameraTemplate):
         gain : int
             The gain value after applying the passed value
         """
-        if gain is not None:
-            self.logger.debug('Setting <Gain> to {gain}'
-                              ''.format(gain=gain))
-            self.device.Gain = gain
-        return self.device.Gain
+        with self.device as cam:
+            gain_feature = cam.Gain
+            if gain is not None:
+                self.logger.debug('Setting <Gain> to {gain}'
+                                  ''.format(gain=gain))
+                gain_feature.set(gain)
+            return self.device.Gain
 
     def setFormat(self, fmt=None):
         """
