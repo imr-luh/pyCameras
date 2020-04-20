@@ -175,7 +175,7 @@ class Camera(CameraTemplate, ABC):
     def getCapability(self):
         try:
             cp = v4l2.v4l2_capability()
-            fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYCAP, cp)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYCAP), cp)
 
             # print("Driver:", "".join((chr(c) for c in cp.driver)))
             # print("Name:", "".join((chr(c) for c in cp.card)))
@@ -190,7 +190,7 @@ class Camera(CameraTemplate, ABC):
     def getResolution(self):
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-        fcntl.ioctl(self.device, v4l2.VIDIOC_G_FMT, fmt)  # get current settings
+        fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
         self.device.ImageWidth = fmt.fmt.pix.width
         self.device.ImageHeight = fmt.fmt.pix.height
         return self.device.ImageWidth, self.device.ImageHeight
@@ -200,12 +200,12 @@ class Camera(CameraTemplate, ABC):
             # query control
             qc = v4l2.v4l2_queryctrl()
             qc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
-            fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYCTRL, qc)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYCTRL), qc)
 
             # get control value
             gc = v4l2.v4l2_control()
             gc.id = v4l2.V4L2_CID_EXPOSURE_ABSOLUTE
-            fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_CTRL), gc)
             self.ExposureMicrons = gc.value * 100  # v4l2 compensation
 
             self.logger.debug(
@@ -222,7 +222,7 @@ class Camera(CameraTemplate, ABC):
         :return:
         """
         try:
-            self.device = open(str('/dev/' + self.device_handle[-1]), 'rb+', buffering=0)
+            self.device = open(str('/dev/' + str(self.device_handle)), 'rb+', buffering=0)
             self.logger.debug('Opened camera device: {device}'
                               ''.format(device=self.device.name))
         except Exception as e:
@@ -251,7 +251,7 @@ class Camera(CameraTemplate, ABC):
         try:
             fmt = v4l2.v4l2_format()
             fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-            fcntl.ioctl(self.device, v4l2.VIDIOC_G_FMT, fmt)  # get current settings
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
             # self.device.PixelFormat = fmt.fmt.pix.pixelformat
             # self.device.BytesPerLine = fmt.fmt.pix.bytesperline
             # self.device.SizeImage = fmt.fmt.pix.sizeimage
@@ -311,7 +311,7 @@ class Camera(CameraTemplate, ABC):
             req.memory = v4l2.V4L2_MEMORY_MMAP
             req.count = 1  # nr of buffer frames
             # req.count = self._expected_images  # nr of buffer frames
-            fcntl.ioctl(self.device, v4l2.VIDIOC_REQBUFS, req)  # tell the driver that we want some buffers
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
             # print("req.count", req.count)
 
 
@@ -322,19 +322,19 @@ class Camera(CameraTemplate, ABC):
                 self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
                 self.buf.memory = v4l2.V4L2_MEMORY_MMAP
                 self.buf.index = ind
-                fcntl.ioctl(self.device, v4l2.VIDIOC_QUERYBUF, self.buf)
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
 
                 mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
                                offset=self.buf.m.offset)
                 self.buffers.append(mm)
 
                 # queue the buffer for capture
-                fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
 
             self.logger.info("Sensor starts streaming")
 
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-            fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMON, self.buf_type)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
 
             t0 = time.time()
             max_t = 1
@@ -343,8 +343,8 @@ class Camera(CameraTemplate, ABC):
             while len(ready_to_read) == 0 and time.time() - t0 < max_t:
                 ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
 
-            fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
-            fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
             self._expected_images = num
             self.logger.info(f"Prepare recording {num} images")
@@ -360,18 +360,18 @@ class Camera(CameraTemplate, ABC):
             for index in range(0, self._expected_images):  # capture 50 frames
                 print(f"Frame : {index}")
 
-                fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
                 mm = self.buffers[self.buf.index]
 
                 image_bytestream = mm.read()
                 mm.seek(0)
-                fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
                 image_byte_array = bytearray(image_bytestream)
                 images.append(image_byte_array)
                 index += 1
 
-            fcntl.ioctl(self.device, v4l2.VIDIOC_STREAMOFF, self.buf_type)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             end = time.time()
             self.logger.info(f"capturing took: {end - start}")
             return images
@@ -387,18 +387,18 @@ class Camera(CameraTemplate, ABC):
             Image of camera device
         """
         try:
-            fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
-            fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
             self.logger.info(f"get single image, ignore empty image")
 
-            fcntl.ioctl(self.device, v4l2.VIDIOC_DQBUF, self.buf)  # get image from the driver queue
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             # print("buf.index", buf.index)
 
             mm = self.buffers[self.buf.index]
 
             image_bytestream = mm.read()
             mm.seek(0)
-            fcntl.ioctl(self.device, v4l2.VIDIOC_QBUF, self.buf)  # request new image
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
             image_byte_array = bytearray(image_bytestream)
 
@@ -411,7 +411,7 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception(f"Failed to open the camera device: {e}")
 
     def postProcessImage(self, raw_images, colour=False):
-        if isinstance(images, list):
+        if isinstance(raw_images, list):
             images = list()
             for image in raw_images:
                 image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
@@ -482,10 +482,10 @@ class Camera(CameraTemplate, ABC):
                 elif v4l2_exposure != gc.value and qc.minimum <= v4l2_exposure <= qc.maximum:
                     # set control value
                     gc.value = v4l2_exposure
-                    fcntl.ioctl(self.device, v4l2.VIDIOC_S_CTRL, gc)
+                    fcntl.ioctl(self.device, int(v4l2.VIDIOC_S_CTRL), gc)
 
                     # get control value
-                    fcntl.ioctl(self.device, v4l2.VIDIOC_G_CTRL, gc)
+                    fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_CTRL), gc)
 
                     if v4l2_exposure == gc.value:
                         self.ExposureMicrons = microns
@@ -500,7 +500,7 @@ class Camera(CameraTemplate, ABC):
         parm = v4l2.v4l2_streamparm()
         parm.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         parm.parm.capture.capability = v4l2.V4L2_CAP_TIMEPERFRAME
-        fcntl.ioctl(self.device, v4l2.VIDIOC_G_PARM, parm)
+        fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
         print("fps before: ", parm.parm.capture.timeperframe.denominator)
         if parm.parm.capture.timeperframe.denominator != framerate:
             parm.parm.capture.timeperframe.denominator = framerate
@@ -514,8 +514,8 @@ class Camera(CameraTemplate, ABC):
                 parm.parm.capture.timeperframe.numerator = 4
 
             print("fps to set: ", parm.parm.capture.timeperframe.denominator)
-            fcntl.ioctl(self.device, v4l2.VIDIOC_S_PARM, parm)  # just got with the defaults
-            fcntl.ioctl(self.device, v4l2.VIDIOC_G_PARM, parm)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_S_PARM), parm)  # just got with the defaults
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
             print("fps is: ", parm.parm.capture.timeperframe.denominator)
             if not (parm.parm.capture.timeperframe.denominator == framerate):
                 return False
@@ -544,7 +544,7 @@ if __name__ == '__main__':
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
 
-    cam = Camera(available_devices)
+    cam = Camera(available_devices[-1])
 
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=10)
@@ -561,11 +561,11 @@ if __name__ == '__main__':
     # cam.prepareRecording(expectedImages)
     # rawImages = cam.record()
 
-    rgbImages = cam.postProcessImage(rawImages, colour=False)
+    Images = cam.postProcessImage(rawImages, colour=False)
 
 
     for i in range(0, expectedImages):
-        plt.imshow(rgbImages[i].astype(np.uint8))
+        plt.imshow(Images[i].astype(np.uint8))
         plt.colorbar()
         plt.show()
 
