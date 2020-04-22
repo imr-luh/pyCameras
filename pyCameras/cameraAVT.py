@@ -399,11 +399,11 @@ class Camera(CameraTemplate):
                 for feature in cam.get_all_features():
                     print("-------------------")
                     print("Feature name: {}".format(feature.get_name()))
-                    print("Value       : {value} {units}".format(value=feature.get(), units=feature.get_unit()))
         except Exception as e:
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
+    @vimba_context
     def setExposureMicrons(self, microns=None):
         """
         Set the exposure time to the given value in microseconds or read the
@@ -429,6 +429,7 @@ class Camera(CameraTemplate):
 
             return exposure_time_feature.get()
 
+    @vimba_context
     def autoExposure(self):
         """
         Automatically sets the exposure time of the camera ONCE.
@@ -496,6 +497,7 @@ class Camera(CameraTemplate):
 
             return self.device.ExposureTimeAbs
 
+    @vimba_context
     def setResolution(self, resolution=None):
         """
         Set the resolution of the camera to the given values in pixels or read
@@ -524,6 +526,7 @@ class Camera(CameraTemplate):
                 height_feature.set(resolution[1])
             return width_feature.get(), height_feature.get()
 
+    @vimba_context
     def setGain(self, gain=None):
         """
         Set the gain of the camera to the given value or read the current value
@@ -546,8 +549,9 @@ class Camera(CameraTemplate):
                 self.logger.debug('Setting <Gain> to {gain}'
                                   ''.format(gain=gain))
                 gain_feature.set(gain)
-            return self.device.Gain
+            return gain_feature.get()
 
+    @vimba_context
     def setFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
@@ -565,13 +569,15 @@ class Camera(CameraTemplate):
         fmt : str
             The image format after applying the passed value
         """
+        with self.device as cam:
+            fmt_feature = cam.PixelFormat
+            if fmt is not None:
+                self.logger.debug('Setting <PixelFormat> to {fmt}'
+                                  ''.format(fmt=fmt))
+                fmt_feature.set(fmt)
+            return fmt_feature.get()
 
-        if fmt is not None:
-            self.logger.debug('Setting <PixelFormat> to {fmt}'
-                              ''.format(fmt=fmt))
-            self.device.PixelFormat = fmt
-        return self.device.PixelFormat
-
+    @vimba_context
     def setTriggerMode(self, mode=None):
         """
         Set the trigger mode of the camera to either "in", "out" or "off", or
@@ -590,39 +596,48 @@ class Camera(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
-        self.logger.debug("Setting trigger mode to: {mode}".format(mode=mode))
+        # TODO: Not perfectly clean since the settings may differ from self.triggerModeSetting
         if mode is None:
             return self.triggerModeSetting
-        elif isinstance(mode, str):
-            if mode.lower() == 'in':
-                self.device.TriggerMode = 'On'
-                self.device.TriggerSource = 'Line1'
-                self.device.TriggerSelector = 'FrameStart'
-                self.device.TriggerActivation = "RisingEdge"
 
-                self.triggerModeSetting = 'in'
-            elif mode.lower() == 'out':
-                # TODO: Implement out trigger for AVT cameras
-                self.triggerModeSetting = 'out'
-                raise NotImplementedError('Sending triggers is not'
-                                          'implemented yet!')
-            elif mode.lower() == 'off':
-                self.device.TriggerMode = 'Off'
-                self.device.TriggerSource = 'Freerun'
-                self.device.TriggerSelector = 'FrameStart'
+        with self.device as cam:
+            trigger_mode_feature = cam.TriggerMode
+            trigger_selector_feature = cam.TriggerSelector
+            trigger_source_feature = cam.TriggerSource
+            trigger_activation_feature = cam.TriggerActivation
+            self.logger.debug("Setting trigger mode to: {mode}".format(mode=mode))
 
-                self.triggerModeSetting = 'off'
+            if isinstance(mode, str):
+                if mode.lower() == 'in':
+                    trigger_mode_feature.set('On')
+                    trigger_source_feature.set('Line1')
+                    trigger_selector_feature.set('FrameStart')
+                    trigger_activation_feature.set("RisingEdge")
+
+                    self.triggerModeSetting = 'in'
+                elif mode.lower() == 'out':
+                    # TODO: Implement out trigger for AVT cameras
+                    self.triggerModeSetting = 'out'
+                    raise NotImplementedError('Sending triggers is not'
+                                              'implemented yet!')
+                elif mode.lower() == 'off':
+                    trigger_mode_feature.set('Off')
+                    trigger_source_feature('Freerun')
+                    trigger_selector_feature('FrameStart')
+
+                    self.triggerModeSetting = 'off'
+                else:
+                    raise ValueError('Unexpected value in setTriggerMode. '
+                                     'Expected "in", "out", or "off". Got {mode}'
+                                     ''.format(mode=mode))
+                return self.triggerModeSetting
             else:
-                raise ValueError('Unexpected value in setTriggerMode. '
-                                 'Expected "in", "out", or "off". Got {mode}'
-                                 ''.format(mode=mode))
-            return self.triggerModeSetting
-        else:
-            raise TypeError('Trigger Mode should be None, "in", "out", or '
-                            '"off". Got {mode}'.format(mode=mode))
+                raise TypeError('Trigger Mode should be None, "in", "out", or '
+                                '"off". Got {mode}'.format(mode=mode))
 
     def __repr__(self):
-        return repr(self.device)
+        with self.device as cam:
+            return cam.get_name()
 
 
 if __name__ == '__main__':
