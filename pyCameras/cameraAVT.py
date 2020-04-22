@@ -23,7 +23,7 @@ import numpy as np
 
 from vimba.vimba import Vimba
 from vimba.frame import FrameStatus
-from vimba.error import VimbaCameraError, VimbaFeatureError
+from vimba.error import VimbaFeatureError
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
@@ -259,6 +259,8 @@ class Camera(CameraTemplate):
         """
         Opens a camera device with the stored self.device object
         """
+        # Cameras are handled within a context.
+        # There is a "open" method, but using the with statement seems more safe.
         pass
 
     def closeDevice(self):
@@ -278,8 +280,7 @@ class Camera(CameraTemplate):
         bool
             True if the camera connection is open, False if it is not
         """
-        # AVT cameras do not have any isOpen-function by itself.
-        # Assuming that if there is a device given in self.device, device is opened.
+        # Cameras are handled within a context. No available isOpen function.
         if self.device is not None:
             return True
         else:
