@@ -5,31 +5,103 @@ __author__ = "Tim Betker"
 __copyright__ = "Copyright 2017, LUH: IMR"
 __credits__ = ["Rüdiger Beermann"]
 # __license__ = ""
-__version__ = "0.2"
+__version__ = "0.3"
 __maintainer__ = "Tim Betker"
 __email__ = "tim.betker@imr.uni-hannover.de"
 __status__ = "alpha"
 __package_name__ = "AVTcamera"
 __developer__ = __author__
 
-'''
-Based on AVT implementation of Rüdiger Beermann and pymba:
-https://github.com/morefigs/pymba.git
-'''
-
 import copy
 import re
 import time
 import logging
+import threading
+import cv2
 
 import numpy as np
 
 from vimba.vimba import Vimba
+from vimba.frame import FrameStatus
 from vimba.error import VimbaCameraError, VimbaFeatureError
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = None
+
+
+def vimba_context(func):
+    """
+    Decorator which enables a function to be executed
+    inside the vimba context when not needing the vimba variable itself.
+
+    Parameters
+    ----------
+    func : Decorated function
+    """
+    def open_vimba_context(*args, **kwargs):
+        with Vimba.get_instance():
+            return func(*args, **kwargs)
+
+    return open_vimba_context
+
+
+class FrameHandler:
+    def __init__(self, max_imgs=1000):
+        self.img_data = list()
+        self.max_imgs = max_imgs
+
+    def __call__(self, cam, frame):
+        if frame.get_status() == FrameStatus.Complete:
+            if len(self.img_data) < self.max_imgs:
+                # After max_imgs images all frames will be trashed
+                self.img_data.append(frame.as_numpy_ndarray())
+
+        cam.queue_frame(frame)
+
+    def get_images(self):
+        return self.img_data.copy()
+
+
+class LiveViewHandler:
+    def __init__(self):
+        self.shutdown_event = threading.Event()
+
+    def __call__(self, cam, frame):
+        key = cv2.waitKey(1)
+        if key in (ord('q'), 13):
+            self.shutdown_event.set()
+            return
+
+        elif frame.get_status() == FrameStatus.Complete:
+            print('{} acquired {}'.format(cam, frame), flush=True)
+
+            msg = 'Stream from \'{}\'. Press <Enter> or <q> to stop stream.'
+            window_title = msg.format(cam.get_name())
+            cv2.namedWindow(window_title, cv2.WINDOW_NORMAL)
+            # TODO: Currently resizes the window to 900 x 900 for every frame (moving to init does not work)
+            cv2.resizeWindow(window_title, 900, 900)
+            cv2.imshow(window_title, frame.as_opencv_image())
+
+        cam.queue_frame(frame)
+
+
+class Grabber(threading.Thread):
+    def __init__(self, camera, frame_handler):
+        super(Grabber, self).__init__()
+        self._stop_event = threading.Event()
+        self._cam = camera
+        self._frame_handler = frame_handler
+
+    def run(self):
+        # Start vimba and camera contexts
+        with Vimba.get_instance():
+            with self._cam as cam:
+                while not self._stop_event.is_set():
+                    cam.start_streaming(handler=self._frame_handler, buffer_count=10)
+
+    def stop(self):
+        self._stop_event.set()
 
 
 class Controller(ControllerTemplate):
@@ -91,7 +163,7 @@ class Controller(ControllerTemplate):
             candidates = re.findall(r'[0-9]+(?:\.[0-9]+){3}', device_handle)
 
         try:
-            return Camera(device_handle=candidates[0], vimba=self._vimba)
+            return Camera(device_handle=candidates[0])
         except Exception as e:
             self.logger.exception('Failed to open the camera device: {e}'
                                   ''.format(e=e))
@@ -132,7 +204,6 @@ class Camera(CameraTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
 
         with Vimba.get_instance() as vimba:
-            # Device handle may be MAC address (camera_id) or IP
             self.device = vimba.get_camera_by_id(device_handle)
 
         # Sets package sizes and transfer rates for GigE cameras
@@ -143,19 +214,15 @@ class Camera(CameraTemplate):
         self.triggerModeSetting = 'off'
 
         # Register AVT specific functions.
-        # Function to set maximum transfer rate depending on used network specifications
-        self.registerFeature('maxRate', self._setMaxTransferRate)
-        self.registerFeature('bandwidth', self._setMaxTransferRate)
-        self.registerFeature('maximumTransferRate', self._setMaxTransferRate)
-        self.registerFeature('transferRate', self._setTransferRate)
         # Function to set pixel format
         self.registerFeature('pixelFormat', self.setFormat)
         self.registerFeature('pixelType', self.setFormat)
         self.registerFeature('format', self.setFormat)
 
-        self.framelist = []
+        self._frame_handler = None
+        self._num_imgs = None
+        self._grabber = None
         self.imgData = []
-        self._clearQueueAndFrames()
 
         # Init data type LUT for each PixelFormat
         self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
@@ -163,6 +230,7 @@ class Camera(CameraTemplate):
     def __del__(self):
         pass
 
+    @vimba_context
     def _setup_transfer_sizes(self):
         with self.device as cam:
             # Try to adjust GeV packet size. This Feature is only available for GigE - Cameras.
@@ -191,25 +259,14 @@ class Camera(CameraTemplate):
         """
         Opens a camera device with the stored self.device object
         """
-
-        try:
-            self.logger.debug('Opening camera device')
-        except Exception as e:
-            self.logger.exception('Failed to open the camera device: '
-                                  '{e}'.format(e=e))
+        pass
 
     def closeDevice(self):
         """
         Closes camera device
         """
-        try:
-            self.logger.debug('Closing camera device')
-            self.device.closeCamera()
-            del self.device
-            self.device = None
-        except Exception as e:
-            self.logger.exception('Failed to close the camera device: '
-                                  '{e}'.format(e=e))
+        del self.device
+        self.device = None
 
     def isOpen(self):
         """
@@ -228,6 +285,7 @@ class Camera(CameraTemplate):
         else:
             return False
 
+    @vimba_context
     def getImage(self, *args, **kwargs):
         """
         Get an image from the camera device
@@ -243,31 +301,13 @@ class Camera(CameraTemplate):
         img : np.ndarray
             Current camera image
         """
-
         self.logger.debug('Creating frame and starting acquisition')
         # Create new frame for camera
-        frame = self.device.getFrame()
-        # Announce frame
-        frame.announceFrame()
-        # Capture a camera image
-        self.device.startCapture()
-        frame.queueFrameCapture()
-        self.device.runFeatureCommand('AcquisitionStart')
+        with self.device as cam:
+            frame = cam.get_frame(timeout_ms=2000)
+            img = frame.as_numpy_ndarray()
 
-        frame.waitFrameCapture(1000)
-        self.device.runFeatureCommand('AcquisitionStop')
-
-        # Get image data ...
-        imgData = np.ndarray(buffer=frame.getBufferByteData(),
-                             dtype=self.imageFormatLUT[self.device.PixelFormat],
-                             shape=(frame.height,
-                                    frame.width))
-
-        # Do cleanup
-        self._cleanUp()
-        self.logger.debug('Image acquisition finished')
-
-        return imgData.copy()
+        return img
 
     def prepareRecording(self, num):
         """ Sets the camera to MultiFrame mode and prepares frames. Use with
@@ -278,20 +318,9 @@ class Camera(CameraTemplate):
         num : int
             number of frames to be captured during acquisition
         """
-        self._clearQueueAndFrames()
-        self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = num
+        self._num_imgs = num
 
-        # Creating frames
-        self.framelist = []
-        for _ in range(num):
-            frame = self.device.getFrame()
-            frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
-            self.framelist.append(frame)
-
-        self.device.startCapture()
-
+    @vimba_context
     def record(self):
         """ Blocking image acquisition, ends acquisition when num frames are
         captured, where num is set by "prepareRecording(num)". Only use with
@@ -302,22 +331,19 @@ class Camera(CameraTemplate):
         imgData : list
             List of images
         """
+        if self._num_imgs is None:
+            raise ValueError("prepareRecording has to be called before using record!")
 
-        self.imgData = []
-        self.device.runFeatureCommand('AcquisitionStart')
-        # Block until num images are captured
-        while len(self.imgData) != len(self.framelist):
-            pass
-        self.device.runFeatureCommand('AcquisitionStop')
-        # Do cleanup
-        self._cleanUp()
-        # Set back to freerun mode
-        self.device.AcquisitionMode = 'Continuous'
+        self.imgData = list()
+        with self.device as cam:
+            for frame in cam.get_frame_generator(limit=self._num_imgs, timeout_ms=2000):
+                self.imgData.append(frame.as_numpy_ndarray())
+
+        self.imgData = None
 
         return copy.deepcopy(self.imgData)
 
-    # TODO: If grabStart without "num" is needed - implement threading solution with while loop (similar to _liveView())
-    def grabStart(self, num):
+    def grabStart(self):
         """
         Prepares num images to be grabbed. This function is not blocking.
         Calling "grabStop()" will end acquisition.
@@ -327,78 +353,42 @@ class Camera(CameraTemplate):
         num : int
             Number of images that should be recorded
         """
-        self.device.AcquisitionMode = 'MultiFrame'
-        self.device.AcquisitionFrameCount = num
-
-        # Creating frames
-        self.framelist = []
-        for _ in range(num):
-            frame = self.device.getFrame()
-            frame.announceFrame()
-            frame.queueFrameCapture(self._frameCallback)
-            self.framelist.append(frame)
-
-        self.device.startCapture()
-        self.device.runFeatureCommand('AcquisitionStart')
+        # TODO: Prevent starting multiple threads? - Camera is occupied anyway...
+        self._frame_handler = FrameHandler(max_imgs=1000)
+        self._grabber = Grabber(self.device, self._frame_handler)
+        self._grabber.start()
 
     def grabStop(self):
         """
         Stop grabbing images and return camera to continuous mode.
         """
-        self.device.runFeatureCommand('AcquisitionStop')
-        # Do cleanup
-        self._cleanUp()
-        # Set back to freerun mode
-        self.device.AcquisitionMode = 'Continuous'
+        # Reset thread
+        self._grabber.stop()
+        self._grabber.join()
+        self._grabber = None
 
-        return copy.deepcopy(self.imgData)
+        # Get data and clear frame handler
+        self.imgData = self._frame_handler.get_images()
+        self._frame_handler = None
 
+        return self.imgData
+
+    @vimba_context
     def _liveView(self):
         """
         Live image stream an visualization through OpenCV window
 
         Leave _liveView by pressing "q"
         """
-        cv.startWindowThread()
-        cv.namedWindow("IMG", 2)
-        cv.resizeWindow("IMG", 900, 900)
-        frame = self.device.getFrame()
-        frame.announceFrame()
-
-        self.device.startCapture()
-
-        framecount = 0
-        droppedframes = []
-
-        while True:
+        handler = LiveViewHandler()
+        with self.device as cam:
             try:
-                frame.queueFrameCapture()
-                success = True
-            except Exception:
-                droppedframes.append(framecount)
-                success = False
-            self.device.runFeatureCommand("AcquisitionStart")
-            self.device.runFeatureCommand("AcquisitionStop")
-            frame.waitFrameCapture(1000)
-            frame_data = frame.getBufferByteData()
-            if success:
-                live_img = np.ndarray(buffer=frame_data,
-                                      dtype=self.imageFormatLUT[self.device.PixelFormat],
-                                      shape=(frame.height,
-                                             frame.width))
+                cam.start_streaming(handler=handler, buffer_count=10)
+                handler.shutdown_event.wait()
+            finally:
+                cam.stop_streaming()
 
-                cv.imshow("IMG", live_img)
-            framecount += 1
-            key = cv.waitKey(1) & 0xFF
-            if key == ord("q"):
-                cv.destroyAllWindows()
-                self.logger.info("Frames displayed: %i" % framecount)
-                self.logger.info("Frames dropped: %s" % droppedframes)
-                break
-
-        # Cleanup
-        self._cleanUp()
-
+    @vimba_context
     def listFeatures(self):
         """
         Lists camera features
