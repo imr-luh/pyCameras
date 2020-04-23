@@ -207,6 +207,7 @@ class Camera(CameraTemplate):
             self.device = vimba.get_camera_by_id(device_handle)
 
         # Sets package sizes and transfer rates for GigE cameras
+        # TODO: How to set transfer rates for already running cameras?
         self._setup_transfer_sizes()
 
         self.device_handle = device_handle
@@ -422,10 +423,10 @@ class Camera(CameraTemplate):
             The exposure time in microseconds after applying the passed value
         """
         with self.device as cam:
+            exposure_time_feature = cam.ExposureTimeAbs
             if microns is not None:
                 self.logger.debug('Setting <ExposureTime> to {microns}'
                                   ''.format(microns=microns))
-                exposure_time_feature = cam.ExposureTimeAbs
                 exposure_time_feature.set(microns)
 
             return exposure_time_feature.get()
