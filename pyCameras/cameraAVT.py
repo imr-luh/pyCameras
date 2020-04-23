@@ -325,8 +325,12 @@ class Camera(CameraTemplate):
         # Create new frame for camera
         with self.device as cam:
             frame = cam.get_frame(timeout_ms=2000)
+            iterations = 0
+            max_iterations = 100
             # TODO: There seems to be a problem with trashed frames. This loop prevents returning incomplete images.
             while frame.get_status() == FrameStatus.Incomplete:
+                if iterations >= max_iterations:
+                    raise TimeoutError("Too many incomplete frames occurred. Aborting.")
                 frame = cam.get_frame(timeout_ms=2000)
             img = frame.as_numpy_ndarray()
 
