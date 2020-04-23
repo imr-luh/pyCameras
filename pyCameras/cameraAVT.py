@@ -248,6 +248,21 @@ class Camera(CameraTemplate):
                 pass
 
     @staticmethod
+    def openController():
+        """
+        Open the camera controller and prepare everything to make cameras
+        accessible
+        """
+        pass
+
+    @staticmethod
+    def closeController():
+        """
+        Close the camera controller
+        """
+        pass
+
+    @staticmethod
     def listDevices():
         """
         List available AVT cameras
