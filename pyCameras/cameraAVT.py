@@ -39,6 +39,7 @@ def vimba_context(func):
     ----------
     func : Decorated function
     """
+
     def open_vimba_context(*args, **kwargs):
         with Vimba.get_instance():
             return func(*args, **kwargs)
@@ -97,8 +98,10 @@ class Grabber(threading.Thread):
         # Start vimba and camera contexts
         with Vimba.get_instance():
             with self._cam as cam:
+                cam.start_streaming(handler=self._frame_handler, buffer_count=10)
+                # Keep context alive until grabber is stopped
                 while not self._stop_event.is_set():
-                    cam.start_streaming(handler=self._frame_handler, buffer_count=10)
+                    pass
 
     def stop(self):
         self._stop_event.set()
@@ -307,6 +310,9 @@ class Camera(CameraTemplate):
         # Create new frame for camera
         with self.device as cam:
             frame = cam.get_frame(timeout_ms=2000)
+            # TODO: There seems to be a problem with trashed frames. This loop prevents returning incomplete images.
+            while frame.get_status() == FrameStatus.Incomplete:
+                frame = cam.get_frame(timeout_ms=2000)
             img = frame.as_numpy_ndarray()
 
         return img
@@ -339,9 +345,8 @@ class Camera(CameraTemplate):
         self.imgData = list()
         with self.device as cam:
             for frame in cam.get_frame_generator(limit=self._num_imgs, timeout_ms=2000):
+                # TODO: First frame seems to be incomplete...
                 self.imgData.append(frame.as_numpy_ndarray())
-
-        self.imgData = None
 
         return copy.deepcopy(self.imgData)
 
@@ -446,42 +451,38 @@ class Camera(CameraTemplate):
         with self.device as cam:
             exposure_auto_feature = cam.ExposureAuto
             exposure_auto_feature.set("Once")
-            # TODO: Finish
+
+            exposure_time_feature = cam.ExposureTimeAbs
             # Save trigger settings and activate acquisition until
             # auto exposure has settled
-            triggerMode_buffer = self.triggerMode
-
-            frame = self.device.getFrame()
-            frame.announceFrame()
-
-            self.device.startCapture()
+            trigger_mode_buffer = self.triggerMode
 
             self.triggerMode = "off"
             max_iter = 100
             iter = 0
             # Auto exposure gets stuck if the border values are reached,
             # but further adjustments are necessary
-            limits = (self.device.ExposureAutoMin, self.device.ExposureAutoMax)
+            limits = (cam.ExposureAutoMin.get(), cam.ExposureAutoMax.get())
             limit_cnt = 0
             last_exposure = -1
 
-            self.device.runFeatureCommand("AcquisitionStart")
-            while self.device.ExposureAuto != "Off":
+            while str(exposure_auto_feature.get()).lower() != "off":
+                frame = cam.get_frame(timeout_ms=2000)
                 if last_exposure in limits:
                     limit_cnt += 1
                 else:
                     limit_cnt = 0
-                try:
-                    frame.queueFrameCapture()
-                except Exception:
-                    pass
-                frame.waitFrameCapture(1000)
-                iter += 1
-                last_exposure = self.device.ExposureTimeAbs
+
+                self.logger.debug("Limit count: {}".format(limit_cnt))
+                self.logger.debug("Auto Exposure feature: {}".format(exposure_auto_feature.get()))
+                last_exposure = exposure_time_feature.get()
+                self.logger.debug("Current exposure: {}".format(last_exposure))
+
                 if limit_cnt > 5:
-                    self.logger.info("Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
-                        exposure=last_exposure))
-                    self.device.ExposureAuto = "Off"
+                    self.logger.info(
+                        "Auto exposure has run into limits. Continuing with exposure of: {exposure} ".format(
+                            exposure=last_exposure))
+                    exposure_auto_feature.set("Off")
                 if iter >= max_iter:
                     try:
                         raise TimeoutError("Timeout while setting auto exposure!")
@@ -489,15 +490,13 @@ class Camera(CameraTemplate):
                         # Python 2 compatible Error
                         raise Exception("Timeout while setting auto exposure!")
 
-            # Cleanup
-            self.device.runFeatureCommand("AcquisitionStop")
-            self._cleanUp()
+                iter += 1
 
-            self.triggerMode = triggerMode_buffer
+            self.triggerMode = trigger_mode_buffer
             self.logger.debug("Set exposure time to {exposure}"
-                              "".format(exposure=self.device.ExposureTimeAbs))
+                              "".format(exposure=last_exposure))
 
-            return self.device.ExposureTimeAbs
+            return exposure_time_feature.get()
 
     @vimba_context
     def setResolution(self, resolution=None):
@@ -624,8 +623,8 @@ class Camera(CameraTemplate):
                                               'implemented yet!')
                 elif mode.lower() == 'off':
                     trigger_mode_feature.set('Off')
-                    trigger_source_feature('Freerun')
-                    trigger_selector_feature('FrameStart')
+                    trigger_source_feature.set('Freerun')
+                    trigger_selector_feature.set('FrameStart')
 
                     self.triggerModeSetting = 'off'
                 else:
