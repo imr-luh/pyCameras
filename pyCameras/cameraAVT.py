@@ -662,10 +662,9 @@ class Camera(CameraTemplate):
 
 if __name__ == '__main__':
     import logging
-    import cv2 as cv
 
     logging.basicConfig(level=logging.DEBUG)
-    bListFeatures = False
+    bListFeatures = True
     bLiveView = False
 
     contr = Controller()
@@ -695,10 +694,10 @@ if __name__ == '__main__':
 
     # Get an image
     image = cam_device.getImage()
-    cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
-    cv.resizeWindow('Captured image', 1000, 1000)
-    cv.imshow('Captured image', image)
-    cv.waitKey()
+    cv2.namedWindow('Captured image', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Captured image', 1000, 1000)
+    cv2.imshow('Captured image', image)
+    cv2.waitKey()
 
     if bLiveView:
         cam_device._liveView()
@@ -707,8 +706,8 @@ if __name__ == '__main__':
     print(len(images))
     for _, img in enumerate(images):
         print('Showing image {i}'.format(i=_))
-        cv.imshow('Captured image', img)
-        cv.waitKey()
+        cv2.imshow('Captured image', img)
+        cv2.waitKey()
 
     # grabbedImgs = cam_device.grabStart(10)
     # cam_device.grabStop()
