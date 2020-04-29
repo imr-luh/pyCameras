@@ -451,46 +451,68 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to get an image from Sensor: {e}")
 
-    def postProcessImage(self, raw_images, colour=False, bit=8):
-        images = list()
-        if isinstance(raw_images, list):
-            for image in raw_images:
-                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
-                rawImage = np.right_shift(image_array, 6).astype(np.uint16)
-                path = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/images/black_level_mean.npy'
-                # path = 'pyCameras/pyCameras/images/black_level_mean.npy'
-                if os.path.exists(path):
-                    print("True")
-                    blacklevel_image = np.load(path)
-                    lin_rawImage = np.where(rawImage - blacklevel_image <= 0, 1023 - blacklevel_image, rawImage - blacklevel_image) / \
-                                   (np.ones([1088, 1928])*1023 - blacklevel_image) * 1023
-                    # rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 2.07)
-                    # rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.675)
-                    lin_rawImage[0::2, 0::2] = np.multiply(lin_rawImage[0::2, 0::2], 1.9)
-                    lin_rawImage[1::2, 1::2] = np.multiply(lin_rawImage[1::2, 1::2], 1.6)
-                    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(lin_rawImage, "BGGR")
+    def blacklevelcorrection(self, image):
+        try:
+            image = image
+            cwd = os.getcwd()
+            path = os.path.join(cwd + '/images/black_level_mean.npy')
+            if os.path.exists(path):
+                blacklevel_image = np.load(path)
+                saturation_image = np.ones_like(image) * 1023
+                if (image > 1000).sum() < 1000:
+                    # corrected_image = np.zeros_like(image).astype(np.int16)
+                    corrected_image = np.subtract(image, blacklevel_image).astype(np.int16)
                 else:
-                    print("False")
+                    corrected_image = np.where(np.subtract(image, blacklevel_image).astype(np.int16) < 0, np.subtract(saturation_image, blacklevel_image).astype(np.int16),
+                                    np.subtract(image, blacklevel_image).astype(np.int16))
+                blacklevel_factor = 1023 / (np.subtract(saturation_image, blacklevel_image))
+                image = np.multiply(corrected_image.copy(), blacklevel_factor)
+                image = np.clip(image, 0, 1023)
+
+            else:
+                raise Exception
+
+            return image
+
+        except Exception as e:
+            self.logger.exception(f"Failed black level correction: {e}")
+
+    def postProcessImage(self, raw_images, colour=False, bit=8, blacklevelcorrection=False):
+        try:
+            images = list()
+            if isinstance(raw_images, list):
+                for image in raw_images:
+                    image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
+                    rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                    if blacklevelcorrection:
+                        rawImage = self.blacklevelcorrection(rawImage)
+
                     rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.9)
                     rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.6)
+                    rawImage = np.clip(rawImage, 0, 1023)
+
                     demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
+                    demosaic_img = np.clip(demosaic_img, 0, 1023)
 
-                # demosaic_norm_max_value = demosaic_img.copy() / np.max(demosaic_img)
-                # norm_image = cv2.normalize(demosaic_img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
-                norm_image = demosaic_img.copy() / 1023
-                norm_image = norm_image.copy().astype(np.float32)
-                # norm_image = image / 1023
-                if not colour:
-                    norm_image = color.rgb2gray(norm_image)
+                    norm_image = demosaic_img.copy() / 1023
 
-                if bit == 8:
-                    image = norm_image * 255
-                    image = image.copy().astype(np.uint8)
-                if bit == 10:
-                    image = norm_image * 1023
-                    image = image.copy().astype(np.uint16)
+                    # norm_image = norm_image.copy().astype(np.float32)
 
-                images.append(image)
+                    if not colour:
+                        norm_image = color.rgb2gray(norm_image)
+
+                    if bit == 8:
+                        image = norm_image.copy() * 255
+                        image = image.astype(np.uint8)
+                    if bit == 10:
+                        image = norm_image.copy() * 1023
+                        image = image.astype(np.uint16)
+
+                    images.append(image)
+            self.logger.debug('Image post processing done')
+
+        except Exception as e:
+            self.logger.exception(f"Failed post processing of raw images {e}")
         return images
 
 
@@ -581,7 +603,7 @@ class Camera(CameraTemplate, ABC):
             del self.device
 
 
-    def analyseBlackLevel(self, raw_images, channel=None):
+    def analyseBlackLevel(self, raw_images, channel=None, display=False):
         if isinstance(raw_images, list):
             index = 0
             for image in raw_images:
@@ -606,11 +628,12 @@ class Camera(CameraTemplate, ABC):
                 index += 1
 
             mean = np.mean(image_list, axis=0).astype(np.uint16)
-            hist = cv2.calcHist([mean], [0], None, [int(np.max(mean))], [0, int(np.max(mean))])
-            plt.plot(hist)
-            plt.ylim([0, 10])
-            plt.title("Histogram")
-            plt.show()
+            if display:
+                hist = cv2.calcHist([mean], [0], None, [int(np.max(mean))], [0, int(np.max(mean)+1)])
+                plt.plot(hist)
+                plt.ylim([0, 10])
+                plt.title("Histogram")
+                plt.show()
 
             thresh_values = "soft"
             if thresh_values == "hard":
@@ -621,56 +644,68 @@ class Camera(CameraTemplate, ABC):
             new_mean = np.where(mean <= thresh[0], 0, mean)
             new_mean = np.where(new_mean >= thresh[1], 0, new_mean)
 
-            hist_new = cv2.calcHist([new_mean], [0], None, [int(np.max(new_mean))], [0, int(np.max(new_mean))])
-            plt.plot(hist_new)
-            plt.ylim([0, 10])
-            plt.title("Clipped Histogram")
-            plt.show()
+            dead_pixels = (new_mean < 10).sum()
+            self.logger.debug(f"Found {dead_pixels} dead pixels")
 
-            print("mean of mean: ", np.mean(new_mean))
-            print("std of mean: ", np.std(new_mean))
-            np.save('/home/middendorf/PycharmProjects/pyCameras/pyCameras/images/black_level_mean', new_mean)
+            if display:
+                plt.imshow(new_mean.astype(np.uint16), cmap='gray', vmin=0, vmax=1023)
+                plt.colorbar()
+                plt.show()
 
-        return new_mean
+                hist_new = cv2.calcHist([new_mean], [0], None, [int(np.max(new_mean))], [0, int(np.max(new_mean)+1)])
+                plt.plot(hist_new)
+                plt.ylim([0, 10])
+                plt.title("Clipped Histogram")
+                plt.show()
+
+                print("mean of mean: ", np.mean(new_mean))
+                print("std of mean: ", np.std(new_mean))
+
+            cwd = os.getcwd()
+            path = os.path.join(cwd + '/images/black_level_mean.npy')
+            np.save(path, new_mean)
+
+        return new_mean, dead_pixels
 
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
-
     cam = Camera(available_devices[-1])
-    # #
-    # # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # expectedImages = 20
-    #
-    #
-    # # i = 15000
-    # #
-    # # name = str(i)
-    # cam.setExposureMicrons(100000)
-    # cam.prepareRecording(expectedImages)
-    # rawImages = cam.record()
-    # processedImages = list()
-    # Images = cam.postProcessImage(rawImages, colour=True, bit=8)
-    # del cam
-    # plt.imshow(Images[3])
-    # plt.show()
 
-    # #
-    # #
+    ##########################################################
+    # Code for the image acquisition of x Frames
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=6)
+    expectedImages = 5
+    cam.setExposureMicrons(15000)
+    cam.prepareRecording(expectedImages)
+    rawImages = cam.record()
+    Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=True)
+    plt.imshow(Images[3])
+    plt.show()
+    ##########################################################
+
+    # ##########################################################
+    # # # Code to display images
     # for i in range(0, len(Images)):
     #     print(f"average {np.average(Images[i])}")
-    #     # plt.imshow(Images[i].astype(np.uint8), cmap="gray")
-    #     plt.imshow(Images[i].astype(np.uint8))
+    #     if Images[i].shape[2] > 2:
+    #         plt.imshow(Images[i].astype(np.uint8))
+    #     else:
+    #         plt.imshow(Images[i].astype(np.uint8), cmap="gray")
     #     plt.colorbar()
     #     plt.show()
-    rawImages = list()
-    for i in range(0, 20):
-        path = os.path.join('/home/middendorf/PycharmProjects/pyCameras/pyCameras/images/black_level_image_' + str(i) + '.npy')
-        rawImage = np.load(path)
-        rawImages.append(rawImage)
+    # ##########################################################
 
-    cam.analyseBlackLevel(rawImages, channel="All")
-
+    # ##########################################################
+    # # Code for the analysis of dead pixels
+    # rawImages = list()
+    # for i in range(0, 20):
+    #     path = os.path.join('/home/middendorf/PycharmProjects/pyCameras/pyCameras/images/black_level_image_' + str(i) + '.npy')
+    #     rawImage = np.load(path)
+    #     rawImages.append(rawImage)
+    #
+    # mask, dead_pixels = cam.analyseBlackLevel(rawImages, channel="All", display=False)
+    # ##########################################################
