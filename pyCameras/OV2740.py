@@ -132,7 +132,7 @@ class Camera(CameraTemplate, ABC):
         self.buf_type = None
         self.acquisition_calls = 0
         self.StreamingMode = False
-
+        self.imageMode = None
 
         self.openDevice()
         self.registerSharedFeatures()
@@ -174,6 +174,7 @@ class Camera(CameraTemplate, ABC):
         self.registerFeature('Framerate', self.setFramerate)
 
         self.registerFeature('Capability', self.getCapability)
+        self.registerFeature('ImageMode', self.setImageMode)
 
     def getCapability(self):
         try:
@@ -197,6 +198,10 @@ class Camera(CameraTemplate, ABC):
         self.device.ImageWidth = fmt.fmt.pix.width
         self.device.ImageHeight = fmt.fmt.pix.height
         return self.device.ImageWidth, self.device.ImageHeight
+
+    def setImageMode(self, Mode='Raw'):
+        self.imageMode = Mode
+
 
     def getExposureInfo(self):
         try:
@@ -397,41 +402,34 @@ class Camera(CameraTemplate, ABC):
         try:
             image = list()
             self.buffers = []
-            if not self.StreamingMode:
-                self.logger.debug(f"init mmap capture, creating buffer etc.")
-                req = v4l2.v4l2_requestbuffers()
-                req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-                req.memory = v4l2.V4L2_MEMORY_MMAP
-                req.count = 1  # nr of buffer frames
-                # req.count = self._expected_images  # nr of buffer frames
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
-                # print("req.count", req.count)
+            self.logger.debug(f"init mmap capture, creating buffer etc.")
+            req = v4l2.v4l2_requestbuffers()
+            req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+            req.memory = v4l2.V4L2_MEMORY_MMAP
+            req.count = 1  # nr of buffer frames
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
 
-                # print(">>> VIDIOC_QUERYBUF, mmap, VIDIOC_QBUF")
-                for ind in range(req.count):
-                    # setup a buffer
-                    self.buf = v4l2.v4l2_buffer()
-                    self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-                    self.buf.memory = v4l2.V4L2_MEMORY_MMAP
-                    self.buf.index = ind
-                    # self.buf.index = self.acquisition_calls
-                    fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
+            for ind in range(req.count):
+                # setup a buffer
+                self.buf = v4l2.v4l2_buffer()
+                self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
+                self.buf.memory = v4l2.V4L2_MEMORY_MMAP
+                self.buf.index = ind
+                # self.buf.index = self.acquisition_calls
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
 
-                    mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
-                                   offset=self.buf.m.offset)
-                    self.buffers.append(mm)
+                mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+                               offset=self.buf.m.offset)
+                self.buffers.append(mm)
 
-                    # queue the buffer for capture
-                    fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
+                # queue the buffer for capture
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
 
+                self.logger.info("Sensor starts streaming")
+                self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
+                time.sleep(0.05)
 
-                    self.logger.info("Sensor starts streaming")
-                    self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-                    fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
-                    self.StreamingMode = True
-
-            else:
-                self.logger.info("Sensor already in streaming")
 
             t0 = time.time()
             max_t = 1
@@ -442,12 +440,11 @@ class Camera(CameraTemplate, ABC):
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
+            self.logger.info("get single image, ignore empty image")
 
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-            self.logger.info(f"get single image, ignore empty image")
-
+            time.sleep(0.05)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            time.sleep(0.05)
             print("index: ", self.acquisition_calls)
             print("buf.index", self.buf.index)
             # mm = self.buffers[self.buf.index]
@@ -508,8 +505,8 @@ class Camera(CameraTemplate, ABC):
                     if blacklevelcorrection:
                         rawImage = self.blacklevelcorrection(rawImage)
 
-                    rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.9)
-                    rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.6)
+                    rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.7)
+                    rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.5)
                     rawImage = np.clip(rawImage, 0, 1023)
 
                     demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
@@ -696,49 +693,49 @@ if __name__ == '__main__':
     cam = Camera(available_devices[-1])
 
     ##########################################################
-    # Code for live view
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(12000)
-
-    ref_image = cam.getImage()
-    ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
-    img1 = cv2.cvtColor(ref_image[0], cv2.COLOR_BGR2RGB)
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', img1)
-    while True:
-        rawImage = cam.getImage()
-        Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
-        if np.array_equal(ref_image[0], Images[0]):
-            print("images are identical")
-            break
-        # plt.imshow(Images[0])
-        # plt.show()
-        img2 = cv2.cvtColor(Images[0], cv2.COLOR_BGR2RGB)
-        ref_image = Images[0]
-        cv2.imshow('test', img2)
-        key = cv2.waitKey(1)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-
-    del cam
+    # # Code for live view
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=6)
+    # cam.setExposureMicrons(12000)
+    #
+    # ref_image = cam.getImage()
+    # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
+    # img1 = cv2.cvtColor(ref_image[0], cv2.COLOR_BGR2RGB)
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # cv2.imshow('test', img1)
+    # while True:
+    #     rawImage = cam.getImage()
+    #     Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
+    #     if np.array_equal(ref_image[0], Images[0]):
+    #         print("images are identical")
+    #         break
+    #     # plt.imshow(Images[0])
+    #     # plt.show()
+    #     img2 = cv2.cvtColor(Images[0], cv2.COLOR_BGR2RGB)
+    #     ref_image = Images[0]
+    #     cv2.imshow('test', img2)
+    #     key = cv2.waitKey(1)
+    #     if key & 0xFF == ord('q'):
+    #         cv2.destroyAllWindows()
+    #         break
+    #
+    # del cam
     ##########################################################
 
 
-    # ##########################################################
-    # # Code for the image acquisition of x Frames
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # expectedImages = 5
-    # cam.setExposureMicrons(15000)
-    # cam.prepareRecording(expectedImages)
-    # rawImages = cam.record()
-    # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=True)
-    # plt.imshow(Images[3])
-    # plt.show()
-    # del cam
-    # ##########################################################
+    ##########################################################
+    # Code for the image acquisition of x Frames
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=6)
+    expectedImages = 10
+    cam.setExposureMicrons(15000)
+    cam.prepareRecording(expectedImages)
+    rawImages = cam.record()
+    Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+    plt.imshow(Images[2])
+    plt.show()
+    del cam
+    ##########################################################
 
     # ##########################################################
     # # # Code to display images
