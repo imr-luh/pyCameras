@@ -137,6 +137,7 @@ class Camera(CameraTemplate, ABC):
         self.openDevice()
         self.registerSharedFeatures()
         self.getCapability()
+        self.setImageMode(Mode='Raw')
 
     @staticmethod
     def listDevices():
@@ -381,6 +382,8 @@ class Camera(CameraTemplate, ABC):
             self.logger.info(f"capturing took: {end - start}")
             self.StreamingMode = False
             self.acquisition_calls += 1
+            if self.imageMode == "Raw":
+                images = self.postProcessImage(raw_images=images, blacklevelcorrection=True, colour=False, bit=8)
             return images
 
         except Exception as e:
@@ -469,15 +472,21 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to get an image from Sensor: {e}")
 
-    def blacklevelcorrection(self, image):
+    def blacklevelcorrection(self, image, correction_type="mean"):
         try:
             image = image
             cwd = os.getcwd()
             path = os.path.join(cwd + '/images/black_level_mean.npy')
             if os.path.exists(path):
-                blacklevel_image = np.load(path)
+                if correction_type == "pixelwise":
+                    blacklevel_image = np.load(path)
+                elif correction_type == "mean":
+                    ref_image = np.load(path)
+                    mean = np.mean(ref_image)
+                    blacklevel_image = np.ones_like(ref_image) * mean
+
                 saturation_image = np.ones_like(image) * 1023
-                if (image > 1000).sum() < 1000:
+                if (image > 1000).sum() < 10000:
                     # corrected_image = np.zeros_like(image).astype(np.int16)
                     corrected_image = np.subtract(image, blacklevel_image).astype(np.int16)
                 else:
@@ -503,7 +512,7 @@ class Camera(CameraTemplate, ABC):
                     image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
                     rawImage = np.right_shift(image_array, 6).astype(np.uint16)
                     if blacklevelcorrection:
-                        rawImage = self.blacklevelcorrection(rawImage)
+                        rawImage = self.blacklevelcorrection(image=rawImage, correction_type="mean")
 
                     rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.7)
                     rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.5)
@@ -730,8 +739,9 @@ if __name__ == '__main__':
     expectedImages = 10
     cam.setExposureMicrons(15000)
     cam.prepareRecording(expectedImages)
-    rawImages = cam.record()
-    Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+    # rawImages = cam.record()
+    Images = cam.record()
+    # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
     plt.imshow(Images[2])
     plt.show()
     del cam
