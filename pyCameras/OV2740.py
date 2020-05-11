@@ -5,6 +5,7 @@ __email__ = "philipp.middendorf@imr.uni-hannover.de"
 __status__ = "Development"
 
 import logging
+import signal
 from abc import ABC
 
 import numpy as np
@@ -25,10 +26,6 @@ from skimage import color
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = logging.DEBUG
-
-
-# todo edit v4l2.py list(range(1,9)) + [0x80] and list(range(0, 4)) + [2]
-
 
 class Controller(ControllerTemplate):
     """ Camera Controller for the OV2740 camera."""
@@ -125,7 +122,7 @@ class Camera(CameraTemplate, ABC):
 
         self.img_data = []
         self._expected_images = 0
-        self.ExposureMicrons = 0
+        self.ExposureMicrons = self.Exposure = 0
         self.TriggerMode = None
         self.buffers = []
         self.buf = None
@@ -138,6 +135,10 @@ class Camera(CameraTemplate, ABC):
         self.registerSharedFeatures()
         self.getCapability()
         self.setImageMode(Mode='Raw')
+        self.setResolution(resolution=[1928,1088])
+        self.liveStream = False
+        # self.setFramerate(framerate=6)
+        self.rec_depth = 0
 
     @staticmethod
     def listDevices():
@@ -156,26 +157,19 @@ class Camera(CameraTemplate, ABC):
         TriggerMode
         """
         self.logger.debug('Registering camera features')
-
         self.registerFeature('ExposureMicrons', self.setExposureMicrons)
         self.registerFeature('ExposureTime', self.setExposureMicrons)
         self.registerFeature('Exposure', self.setExposureMicrons)
-
         self.registerFeature('ExposureInfo', self.getExposureInfo)
-
-
-        self.registerFeature('Resolution', self.getResolution)
-
+        self.registerFeature('Resolution', self.setResolution)
         # self.registerFeature('Gain', self.setGain)
         self.registerFeature('Format', self.getFormat)
-
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
-
         self.registerFeature('Framerate', self.setFramerate)
-
         self.registerFeature('Capability', self.getCapability)
         self.registerFeature('ImageMode', self.setImageMode)
+        self.registerFeature('liveStream', self.setLive)
 
     def getCapability(self):
         try:
@@ -192,7 +186,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to get sensor capability: {e}")
 
-    def getResolution(self):
+    def setResolution(self, resolution=[1928,1088]):
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
@@ -313,10 +307,15 @@ class Camera(CameraTemplate, ABC):
         return self.TriggerMode
 
     def prepareRecording(self, num):
+        self._expected_images = num
+        self.buffers = []
+        self.logger.info(f"Prepare recording {num} images")
         try:  # empty buffer, otherwise all frames are identical
-            self.buffers = []
+
+            # self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
+
             if not self.StreamingMode:
-                self.logger.debug(f"init mmap capture, creating buffer etc.")
                 req = v4l2.v4l2_requestbuffers()
                 req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
                 req.memory = v4l2.V4L2_MEMORY_MMAP
@@ -338,8 +337,6 @@ class Camera(CameraTemplate, ABC):
                     # queue the buffer for capture
                     fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
 
-                self.logger.info("Sensor starts streaming")
-
                 self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
 
@@ -353,41 +350,65 @@ class Camera(CameraTemplate, ABC):
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
-                self._expected_images = num
-                self.logger.info(f"Prepare recording {num} images")
-
         except Exception as e:
             self.logger.exception(f"Failed to prepare recording: {e}")
 
+    def readBuffers(self):
+        images = list()
+        for index in range(0, self._expected_images):  # capture 50 frames
+
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            mm = self.buffers[self.buf.index]
+
+            image_bytestream = mm.read()
+            mm.seek(0)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
+
+            image_byte_array = bytearray(image_bytestream)
+            images.append(image_byte_array)
+            index += 1
+        return images
+
     def record(self):
+        # def timeout_handler(signum, frame):
+        #     raise (TimeoutError("Failed driver request."))
+        #
+        # signal.signal(signal.SIGALRM, timeout_handler)
+        # signal.alarm(5)
+        self.logger.info(f"Recording {self._expected_images} images, ignore empty image")
+        start = time.time()
         try:
-            self.logger.info(f"Recording {self._expected_images}, ignore empty image")
-            start = time.time()
-            images = list()
-            for index in range(0, self._expected_images):  # capture 50 frames
+            images = self.readBuffers()
 
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-                mm = self.buffers[self.buf.index]
+        except Exception as e:
+            # Todo: excetion not called by v4l2
+            self.logger.exception(f"Failed to record images: {e}")
+            time.sleep(0.1)
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
+            self.acquisition_calls += 1
+            time.sleep(0.1)
+            while self.acquisition_calls < 5:
+                self.prepareRecording(self._expected_images)
+                images = self.readBuffers()
 
-                image_bytestream = mm.read()
-                mm.seek(0)
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-
-                image_byte_array = bytearray(image_bytestream)
-                images.append(image_byte_array)
-                index += 1
-
+        finally:
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             end = time.time()
             self.logger.info(f"capturing took: {end - start}")
             self.StreamingMode = False
-            self.acquisition_calls += 1
+            # signal.alarm(0)
+            # self.rec_depth = 0
             if self.imageMode == "Raw":
                 images = self.postProcessImage(raw_images=images, blacklevelcorrection=True, colour=False, bit=8)
             return images
 
-        except Exception as e:
-            self.logger.exception(f"Failed to record images: {e}")
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
+            # time.sleep(0.5)
+            # self.rec_depth += 1
+            # print(self.rec_depth)
+            # if self.rec_depth > 10:
+            #     raise(TimeoutError("HOLY SHIT!"))
+            # return self.record()
 
     def getImages(self, num):
         self.prepareRecording(num)
@@ -402,10 +423,15 @@ class Camera(CameraTemplate, ABC):
         :return: image : np.ndarray
             Image of camera device
         """
+        def timeout_handler(signum, frame):
+            raise(TimeoutError("Failed driver request."))
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(2)
         try:
-            image = list()
+            rawImage = []
             self.buffers = []
-            self.logger.debug(f"init mmap capture, creating buffer etc.")
+            if not self.liveStream:
+                self.logger.debug(f"prepare get frame.")
             req = v4l2.v4l2_requestbuffers()
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
@@ -418,7 +444,6 @@ class Camera(CameraTemplate, ABC):
                 self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
                 self.buf.memory = v4l2.V4L2_MEMORY_MMAP
                 self.buf.index = ind
-                # self.buf.index = self.acquisition_calls
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
 
                 mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
@@ -427,8 +452,8 @@ class Camera(CameraTemplate, ABC):
 
                 # queue the buffer for capture
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
-
-                self.logger.info("Sensor starts streaming")
+                if not self.liveStream:
+                    self.logger.info("Sensor starts streaming")
                 self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
                 time.sleep(0.05)
@@ -443,15 +468,12 @@ class Camera(CameraTemplate, ABC):
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-            self.logger.info("get single image, ignore empty image")
+            if not self.liveStream:
+                self.logger.info("get single image, ignore empty image")
 
-            time.sleep(0.05)
+            # time.sleep(0.05)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            time.sleep(0.05)
-            print("index: ", self.acquisition_calls)
-            print("buf.index", self.buf.index)
-            # mm = self.buffers[self.buf.index]
-            # self.buf.index = self.acquisition_calls
+            # time.sleep(0.05)
             mm = self.buffers[self.buf.index]
 
             image_bytestream = mm.read()
@@ -460,22 +482,38 @@ class Camera(CameraTemplate, ABC):
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.StreamingMode = False
-            # del self.buf, mm, req, self.buf_type, self.buffers
 
             image_byte_array = bytearray(image_bytestream)
 
-            image.append(image_byte_array)
-            # del self.buf
-            self.acquisition_calls += 1
+            if self.liveStream:
+                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_byte_array).astype(np.uint16)
+                rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                norm_image = rawImage.copy() / 1023
+                image = norm_image.copy() * 255
+                image = image.astype(np.uint8)
+            else:
+                rawImage.append(image_byte_array)
+                image = self.postProcessImage(raw_images=rawImage, colour=False, bit=8, blacklevelcorrection=False)
+
+            signal.alarm(0)
+            self.rec_depth = 0
             return image
 
         except Exception as e:
-            self.logger.exception(f"Failed to get an image from Sensor: {e}")
+            self.logger.exception(f"Failed getImage: {e}")
+            # TODO: Rekursionstiefe begrenzen
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
+            time.sleep(0.1)
+            self.rec_depth += 1
+            print(self.rec_depth)
+            if self.rec_depth > 10:
+                raise(TimeoutError("HOLY SHIT!"))
+            return self.getImage()
 
     def blacklevelcorrection(self, image, correction_type="mean"):
         try:
             image = image
-            cwd = os.getcwd()
+            cwd = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/'
             path = os.path.join(cwd + '/images/black_level_mean.npy')
             if os.path.exists(path):
                 if correction_type == "pixelwise":
@@ -572,6 +610,7 @@ class Camera(CameraTemplate, ABC):
                 if v4l2_exposure == gc.value:
                     self.logger.debug(f'Exposure time was already set to {microns}us')
                     self.ExposureMicrons = microns
+                    self.Exposure = microns
 
                 elif v4l2_exposure != gc.value and qc.minimum <= v4l2_exposure <= qc.maximum:
                     # set control value
@@ -583,6 +622,7 @@ class Camera(CameraTemplate, ABC):
 
                     if v4l2_exposure == gc.value:
                         self.ExposureMicrons = microns
+                        self.Exposure = microns
                         return microns
                 else:
                     raise Exception
@@ -615,9 +655,14 @@ class Camera(CameraTemplate, ABC):
     def prepare_live(self, exposure):
         # Todo: edit this
         """Define live view exposure time to be less. So no overlighting occurs"""
-        live_exposure = exposure * 0.05
+        # live_exposure = exposure * 0.05
+        live_exposure = exposure
+        self.setLive(True)
         self.setExposureMicrons(microns=live_exposure)
         self.logger.info(f"Live View Exposure time : {live_exposure}µs")
+
+    def setLive(self, Mode=False):
+        self.liveStream = Mode
 
     def __del__(self):
         """
@@ -736,14 +781,19 @@ if __name__ == '__main__':
     # Code for the image acquisition of x Frames
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
-    expectedImages = 10
+    expectedImages = 5
     cam.setExposureMicrons(15000)
-    cam.prepareRecording(expectedImages)
+    # cam.prepareRecording(expectedImages)
     # rawImages = cam.record()
-    Images = cam.record()
+    for i in range(0,10):
+        cam.prepareRecording(expectedImages)
+        Images = cam.record()
+        plt.imshow(Images[3])
+        plt.show()
+        # time.sleep(1)
+
     # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
-    plt.imshow(Images[2])
-    plt.show()
+
     del cam
     ##########################################################
 
