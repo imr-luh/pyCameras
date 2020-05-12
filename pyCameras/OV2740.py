@@ -493,7 +493,8 @@ class Camera(CameraTemplate, ABC):
                 image = image.astype(np.uint8)
             else:
                 rawImage.append(image_byte_array)
-                image = self.postProcessImage(raw_images=rawImage, colour=False, bit=8, blacklevelcorrection=False)
+                processdImages = self.postProcessImage(raw_images=rawImage, colour=True, bit=8, blacklevelcorrection=False)
+                image = processdImages[0]
 
             signal.alarm(0)
             self.rec_depth = 0
@@ -747,54 +748,52 @@ if __name__ == '__main__':
     cam = Camera(available_devices[-1])
 
     ##########################################################
-    # # Code for live view
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # cam.setExposureMicrons(12000)
-    #
-    # ref_image = cam.getImage()
-    # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
-    # img1 = cv2.cvtColor(ref_image[0], cv2.COLOR_BGR2RGB)
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', img1)
-    # while True:
-    #     rawImage = cam.getImage()
-    #     Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
-    #     if np.array_equal(ref_image[0], Images[0]):
-    #         print("images are identical")
-    #         break
-    #     # plt.imshow(Images[0])
-    #     # plt.show()
-    #     img2 = cv2.cvtColor(Images[0], cv2.COLOR_BGR2RGB)
-    #     ref_image = Images[0]
-    #     cv2.imshow('test', img2)
-    #     key = cv2.waitKey(1)
-    #     if key & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #         break
-    #
-    # del cam
-    ##########################################################
-
-
-    ##########################################################
-    # Code for the image acquisition of x Frames
+    # Code for live view
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
-    expectedImages = 5
     cam.setExposureMicrons(15000)
-    # cam.prepareRecording(expectedImages)
-    # rawImages = cam.record()
-    for i in range(0,10):
-        cam.prepareRecording(expectedImages)
-        Images = cam.record()
-        plt.imshow(Images[3])
-        plt.show()
-        # time.sleep(1)
 
-    # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+    ref_image = cam.getImage()
+    # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
+    ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
+    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    cv2.imshow('test', ref_image)
+    while True:
+        Image = cam.getImage()
+        # Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
+        if np.array_equal(ref_image, Image):
+            print("images are identical")
+            break
+        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+        ref_image = Image
+        cv2.imshow('test', Image)
+        key = cv2.waitKey(1)
+        if key & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
 
     del cam
+    ##########################################################
+
+
+    ##########################################################
+    # # Code for the image acquisition of x Frames
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=6)
+    # expectedImages = 5
+    # cam.setExposureMicrons(15000)
+    # # cam.prepareRecording(expectedImages)
+    # # rawImages = cam.record()
+    # for i in range(0,10):
+    #     cam.prepareRecording(expectedImages)
+    #     Images = cam.record()
+    #     plt.imshow(Images[3])
+    #     plt.show()
+    #     # time.sleep(1)
+    #
+    # # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+    #
+    # del cam
     ##########################################################
 
     # ##########################################################
