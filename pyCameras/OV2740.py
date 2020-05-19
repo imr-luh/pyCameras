@@ -122,7 +122,7 @@ class Camera(CameraTemplate, ABC):
 
         self.img_data = []
         self._expected_images = 0
-        self.ExposureMicrons = self.Exposure = 0
+        self.ExposureMicrons = 0
         self.TriggerMode = None
         self.buffers = []
         self.buf = None
@@ -132,7 +132,8 @@ class Camera(CameraTemplate, ABC):
         self.imageMode = None
 
         self.openDevice()
-        self.registerSharedFeatures()
+        # self.registerSharedFeatures()
+        self.registerFeatures()
         self.getCapability()
         self.setImageMode(Mode='Raw')
         self.setResolution(resolution=[1928,1088])
@@ -150,16 +151,17 @@ class Camera(CameraTemplate, ABC):
         """
         return Controller().listDevices()
 
-    def registerSharedFeatures(self):
+    def registerFeatures(self):
         """
         Registration of shared features that should be the same for all camera
         implementations. E.g. ExposureMicrons, Resolution, Gain, Format and
         TriggerMode
         """
         self.logger.debug('Registering camera features')
-        self.registerFeature('ExposureMicrons', self.setExposureMicrons)
-        self.registerFeature('ExposureTime', self.setExposureMicrons)
-        self.registerFeature('Exposure', self.setExposureMicrons)
+        # self.registerFeature('ExposureMicrons', self.setExposureMicrons)
+        # self.registerFeature('ExposureTime', self.setExposureMicrons)
+        # self.registerFeature('Exposure', self.setExposureMicrons)
+        # self.registerFeature('exposure', self.setExposureMicrons)
         self.registerFeature('ExposureInfo', self.getExposureInfo)
         self.registerFeature('Resolution', self.setResolution)
         # self.registerFeature('Gain', self.setGain)
@@ -493,7 +495,8 @@ class Camera(CameraTemplate, ABC):
                 image = image.astype(np.uint8)
             else:
                 rawImage.append(image_byte_array)
-                processdImages = self.postProcessImage(raw_images=rawImage, colour=True, bit=8, blacklevelcorrection=False)
+                processdImages = self.postProcessImage(raw_images=rawImage, colour=False
+                                                       , bit=8, blacklevelcorrection=True)
                 image = processdImages[0]
 
             signal.alarm(0)
@@ -611,7 +614,7 @@ class Camera(CameraTemplate, ABC):
                 if v4l2_exposure == gc.value:
                     self.logger.debug(f'Exposure time was already set to {microns}us')
                     self.ExposureMicrons = microns
-                    self.Exposure = microns
+                    return microns
 
                 elif v4l2_exposure != gc.value and qc.minimum <= v4l2_exposure <= qc.maximum:
                     # set control value
@@ -623,13 +626,17 @@ class Camera(CameraTemplate, ABC):
 
                     if v4l2_exposure == gc.value:
                         self.ExposureMicrons = microns
-                        self.Exposure = microns
                         return microns
+                    else:
+                        raise Exception
                 else:
                     raise Exception
 
             except Exception as e:
                 self.logger.exception(f"Failed to set exposure time: {e}")
+
+        else:
+            return self.ExposureMicrons
 
     def setFramerate(self, framerate=6):
 
@@ -740,6 +747,20 @@ class Camera(CameraTemplate, ABC):
 
         return new_mean, dead_pixels
 
+    def listFeatures(self):
+        """
+        Lists camera features
+        """
+        try:
+            self.logger.debug('Listing camera features')
+            for feature in self.features:
+                print("-------------------")
+                print(f"Feature name: {feature}")
+        except Exception as e:
+            self.logger.exception('Failed to get feature names: '
+                                  '{e}'.format(e=e))
+
+
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
@@ -747,11 +768,14 @@ if __name__ == '__main__':
     logger.debug(f"Available Devices {available_devices}")
     cam = Camera(available_devices[-1])
 
+
     ##########################################################
     # Code for live view
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
     cam.setExposureMicrons(15000)
+
+    cam.listFeatures()
 
     ref_image = cam.getImage()
     # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
