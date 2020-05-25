@@ -486,18 +486,24 @@ class Camera(CameraTemplate, ABC):
             self.StreamingMode = False
 
             image_byte_array = bytearray(image_bytestream)
+            # Todo: implement fast liveview
+            # if self.liveStream:
+            #     image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_byte_array).astype(np.uint16)
+            #     rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+            #     norm_image = rawImage.copy() / 1023
+            #     image = norm_image.copy() * 255
+            #     image = image.astype(np.uint8)
+            # else:
+            #     rawImage.append(image_byte_array)
+            #     processdImages = self.postProcessImage(raw_images=rawImage, colour=False
+            #                                            , bit=8, blacklevelcorrection=True)
+            #     image = processdImages[0]
 
-            if self.liveStream:
-                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_byte_array).astype(np.uint16)
-                rawImage = np.right_shift(image_array, 6).astype(np.uint16)
-                norm_image = rawImage.copy() / 1023
-                image = norm_image.copy() * 255
-                image = image.astype(np.uint8)
-            else:
-                rawImage.append(image_byte_array)
-                processdImages = self.postProcessImage(raw_images=rawImage, colour=False
-                                                       , bit=8, blacklevelcorrection=True)
-                image = processdImages[0]
+            # todo: fix for postprocessing of single images
+            rawImage.append(image_byte_array)
+            processdImages = self.postProcessImage(raw_images=rawImage, colour=False
+                                                   , bit=8, blacklevelcorrection=True)
+            image = processdImages[0]
 
             signal.alarm(0)
             self.rec_depth = 0
@@ -664,10 +670,10 @@ class Camera(CameraTemplate, ABC):
         # Todo: edit this
         """Define live view exposure time to be less. So no overlighting occurs"""
         # live_exposure = exposure * 0.05
-        live_exposure = exposure
+        # live_exposure = exposure
         self.setLive(True)
-        self.setExposureMicrons(microns=live_exposure)
-        self.logger.info(f"Live View Exposure time : {live_exposure}µs")
+        self.setExposureMicrons(microns=exposure)
+        self.logger.info(f"Live View Exposure time : {exposure}µs")
 
     def setLive(self, Mode=False):
         self.liveStream = Mode
