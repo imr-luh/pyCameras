@@ -478,6 +478,8 @@ class Camera(CameraTemplate, ABC):
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
             if not self.liveStream:
                 self.logger.info("get single image, ignore empty image")
 
@@ -493,29 +495,14 @@ class Camera(CameraTemplate, ABC):
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.StreamingMode = False
 
-            image_byte_array = bytearray(image_bytestream)
-            # Todo: implement fast liveview
-            # if self.liveStream:
-            #     image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image_byte_array).astype(np.uint16)
-            #     rawImage = np.right_shift(image_array, 6).astype(np.uint16)
-            #     norm_image = rawImage.copy() / 1023
-            #     image = norm_image.copy() * 255
-            #     image = image.astype(np.uint8)
-            # else:
-            #     rawImage.append(image_byte_array)
-            #     processdImages = self.postProcessImage(raw_images=rawImage, colour=False
-            #                                            , bit=8, blacklevelcorrection=True)
-            #     image = processdImages[0]
+            byteArray = bytearray(image_bytestream)
 
-            # todo: fix for postprocessing of single images
-            rawImage.append(image_byte_array)
-            processdImages = self.postProcessImage(raw_images=rawImage, colour=False
-                                                   , bit=8, blacklevelcorrection=True)
-            image = processdImages[0]
+            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
+            image_array = np.right_shift(image_array, 6).astype(np.uint16)
 
             signal.alarm(0)
             self.rec_depth = 0
-            return image
+            return image_array
 
         except Exception as e:
             self.logger.exception(f"Failed getImage: {e}")
@@ -785,55 +772,55 @@ if __name__ == '__main__':
     cam = Camera(available_devices[1])
 
 
-    # ##########################################################
-    # # Code for live view
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # cam.setExposureMicrons(15000)
-    #
-    # cam.listFeatures()
-    #
-    # ref_image = cam.getImage()
-    # # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
+    ##########################################################
+    # Code for live view
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=6)
+    cam.setExposureMicrons(20000)
+
+    cam.listFeatures()
+    refImageList = list()
+    refImageList.append(cam.getImage())
+    ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
     # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', ref_image)
-    # while True:
-    #     Image = cam.getImage()
-    #     # Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
-    #     if np.array_equal(ref_image, Image):
-    #         print("images are identical")
-    #         break
-    #     Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-    #     ref_image = Image
-    #     cv2.imshow('test', Image)
-    #     key = cv2.waitKey(1)
-    #     if key & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #         break
-    #
-    # del cam
-    # ##########################################################
+    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    cv2.imshow('test', ref_image)
+    while True:
+        ImageList = []
+        ImageList.append(cam.getImage())
+        Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+        if np.array_equal(ref_image, Image):
+            print("images are identical")
+            break
+        ref_image = Image
+        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+        cv2.imshow('test', Image)
+        key = cv2.waitKey(1)
+        if key & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
+
+    del cam
+    ##########################################################
 
 
     #########################################################
     # Code for the image acquisition of x Frames
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=6)
-    expectedImages = 15
-    cam.setExposureMicrons(15000)
-    # cam.prepareRecording(expectedImages)
-    # rawImages = cam.record()
-    for i in range(0,1):
-        cam.prepareRecording(expectedImages)
-        Images = cam.record()
-        plt.imshow(Images[3])
-        plt.show()
-        # time.sleep(1)
-
-    # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
-
-    del cam
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=6)
+    # expectedImages = 15
+    # cam.setExposureMicrons(15000)
+    # # cam.prepareRecording(expectedImages)
+    # # rawImages = cam.record()
+    # for i in range(0,1):
+    #     cam.prepareRecording(expectedImages)
+    #     Images = cam.record()
+    #     # time.sleep(1)
+    #
+    # Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
+    # plt.imshow(Images[3])
+    # plt.show()
+    # del cam
     #########################################################
 
     # ##########################################################
