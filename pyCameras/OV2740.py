@@ -135,7 +135,7 @@ class Camera(CameraTemplate, ABC):
         # self.registerSharedFeatures()
         self.registerFeatures()
         self.getCapability()
-        self.setImageMode(Mode='Raw')
+        # self.setImageMode(Mode='Raw')
         self.setResolution(resolution=[1928,1088])
         self.liveStream = False
         # self.setFramerate(framerate=6)
@@ -380,7 +380,7 @@ class Camera(CameraTemplate, ABC):
         self.logger.info(f"Recording {self._expected_images} images, ignore empty image")
         start = time.time()
         try:
-            images = self.readBuffers()
+            byteArrays = self.readBuffers()
 
         except Exception as e:
             # Todo: excetion not called by v4l2
@@ -391,17 +391,25 @@ class Camera(CameraTemplate, ABC):
             time.sleep(0.1)
             while self.acquisition_calls < 5:
                 self.prepareRecording(self._expected_images)
-                images = self.readBuffers()
+                byteArrays = self.readBuffers()
 
         finally:
+            images = list()
+            for byteArray in byteArrays:
+                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
+                images.append(np.right_shift(image_array, 6).astype(np.uint16))
+
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             end = time.time()
             self.logger.info(f"capturing took: {end - start}")
             self.StreamingMode = False
             # signal.alarm(0)
             # self.rec_depth = 0
-            if self.imageMode == "Raw":
-                images = self.postProcessImage(raw_images=images, blacklevelcorrection=True, colour=False, bit=8)
+
+            # if self.imageMode == "Raw":
+            #     images = self.postProcessImage(raw_images=rawImages, blacklevelcorrection=True, colour=False, bit=8)
+            # else:
+
             return images
 
             # fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
@@ -552,21 +560,22 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed black level correction: {e}")
 
-    def postProcessImage(self, raw_images, colour=False, bit=8, blacklevelcorrection=False):
+
+    def postProcessImages(self, raw_images, colour=False, bit=8, blacklevelcorrection=False):
         try:
             images = list()
             if isinstance(raw_images, list):
-                for image in raw_images:
-                    image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
-                    rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                for raw_image in raw_images:
+                    # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
+                    # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
                     if blacklevelcorrection:
-                        rawImage = self.blacklevelcorrection(image=rawImage, correction_type="mean")
+                        raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
-                    rawImage[0::2, 0::2] = np.multiply(rawImage[0::2, 0::2], 1.7)
-                    rawImage[1::2, 1::2] = np.multiply(rawImage[1::2, 1::2], 1.5)
-                    rawImage = np.clip(rawImage, 0, 1023)
+                    raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
+                    raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
+                    raw_image = np.clip(raw_image, 0, 1023)
 
-                    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(rawImage, "BGGR")
+                    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
                     demosaic_img = np.clip(demosaic_img, 0, 1023)
 
                     norm_image = demosaic_img.copy() / 1023
@@ -772,59 +781,60 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
-    cam = Camera(available_devices[-1])
+    # cam = Camera(available_devices[-1])
+    cam = Camera(available_devices[1])
 
 
-    ##########################################################
-    # Code for live view
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(15000)
-
-    cam.listFeatures()
-
-    ref_image = cam.getImage()
-    # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
-    ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
-    while True:
-        Image = cam.getImage()
-        # Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
-        if np.array_equal(ref_image, Image):
-            print("images are identical")
-            break
-        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-        ref_image = Image
-        cv2.imshow('test', Image)
-        key = cv2.waitKey(1)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-
-    del cam
-    ##########################################################
-
-
-    ##########################################################
-    # # Code for the image acquisition of x Frames
+    # ##########################################################
+    # # Code for live view
     # cam.setTriggerMode("Out")
     # cam.setFramerate(framerate=6)
-    # expectedImages = 5
     # cam.setExposureMicrons(15000)
-    # # cam.prepareRecording(expectedImages)
-    # # rawImages = cam.record()
-    # for i in range(0,10):
-    #     cam.prepareRecording(expectedImages)
-    #     Images = cam.record()
-    #     plt.imshow(Images[3])
-    #     plt.show()
-    #     # time.sleep(1)
     #
-    # # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+    # cam.listFeatures()
+    #
+    # ref_image = cam.getImage()
+    # # ref_image = cam.postProcessImage(ref_image, colour=True, bit=8, blacklevelcorrection=True)
+    # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # cv2.imshow('test', ref_image)
+    # while True:
+    #     Image = cam.getImage()
+    #     # Images = cam.postProcessImage(rawImage, colour=True, bit=8, blacklevelcorrection=True)
+    #     if np.array_equal(ref_image, Image):
+    #         print("images are identical")
+    #         break
+    #     Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+    #     ref_image = Image
+    #     cv2.imshow('test', Image)
+    #     key = cv2.waitKey(1)
+    #     if key & 0xFF == ord('q'):
+    #         cv2.destroyAllWindows()
+    #         break
     #
     # del cam
-    ##########################################################
+    # ##########################################################
+
+
+    #########################################################
+    # Code for the image acquisition of x Frames
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=6)
+    expectedImages = 15
+    cam.setExposureMicrons(15000)
+    # cam.prepareRecording(expectedImages)
+    # rawImages = cam.record()
+    for i in range(0,1):
+        cam.prepareRecording(expectedImages)
+        Images = cam.record()
+        plt.imshow(Images[3])
+        plt.show()
+        # time.sleep(1)
+
+    # Images = cam.postProcessImage(rawImages, colour=True, bit=8, blacklevelcorrection=False)
+
+    del cam
+    #########################################################
 
     # ##########################################################
     # # # Code to display images
