@@ -173,6 +173,7 @@ class Camera(CameraTemplate, ABC):
         self.registerFeature('ImageMode', self.setImageMode)
         self.registerFeature('liveStream', self.setLive)
 
+
     def getCapability(self):
         try:
             cp = v4l2.v4l2_capability()
@@ -762,7 +763,41 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
+def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=False):
+    try:
+        images = list()
+        if isinstance(raw_images, list):
+            for raw_image in raw_images:
+                # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
+                # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                if blacklevelcorrection:
+                    raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
+                raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
+                raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
+                raw_image = np.clip(raw_image, 0, 1023)
+
+                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+                demosaic_img = np.clip(demosaic_img, 0, 1023)
+
+                norm_image = demosaic_img.copy() / 1023
+
+                # norm_image = norm_image.copy().astype(np.float32)
+
+                if not colour:
+                    norm_image = color.rgb2gray(norm_image)
+
+                if bit == 8:
+                    image = norm_image.copy() * 255
+                    image = image.astype(np.uint8)
+                if bit == 10:
+                    image = norm_image.copy() * 1023
+                    image = image.astype(np.uint16)
+
+                images.append(image)
+    except Exception as e:
+        print(f"Failed post processing of raw images {e}")
+    return images
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
@@ -807,9 +842,9 @@ if __name__ == '__main__':
     #########################################################
     # Code for the image acquisition of x Frames
     # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # expectedImages = 15
-    # cam.setExposureMicrons(15000)
+    # cam.setFramerate(framerate=10)
+    # expectedImages = 50
+    # cam.setExposureMicrons(10000)
     # # cam.prepareRecording(expectedImages)
     # # rawImages = cam.record()
     # for i in range(0,1):
