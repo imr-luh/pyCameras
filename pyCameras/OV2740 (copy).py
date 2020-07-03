@@ -4,6 +4,7 @@ __maintainer__ = "Philipp Middendorf"
 __email__ = "philipp.middendorf@imr.uni-hannover.de"
 __status__ = "Development"
 
+
 import logging
 import signal
 from abc import ABC
@@ -22,8 +23,22 @@ from threading import Event
 import sys
 import copy
 from skimage import color
-
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
+
+
+### added by wrangel
+import time
+import time
+import rawpy
+import numpy as np
+from matplotlib import pyplot
+from scipy.ndimage.filters import convolve
+
+
+
+
+
+
 
 LOGGING_LEVEL = logging.DEBUG
 
@@ -137,12 +152,101 @@ class Camera(CameraTemplate, ABC):
         self.getCapability()
         # self.setImageMode(Mode='Raw')
         self.setResolution(resolution=[1928,1088])
-
         self.liveStream = False
         # self.setFramerate(framerate=6)
         self.rec_depth = 0
 
+
+        ## for black level calibration
+        cwd = '/home/wrangel/Downloads'
+        path = os.path.join(cwd + '/black_level_mean.npy')
+        correction_type = "mean"
+
+        if os.path.exists(path):
+            if correction_type == "pixelwise":
+                self.blacklevel_image = np.load(path)
+            elif correction_type == "mean":
+                ref_image = np.load(path)
+                mean = np.mean(ref_image)
+                self.blacklevel_image = np.ones_like(ref_image) * mean
+        else:
+            raise Exception
+
+        self.saturation_image = np.ones_like(ref_image) * 1023
+        self.blacklevel_factor = 1023 / (np.subtract(self.saturation_image, self.blacklevel_image))
+        #########################
+
+
+
+
+
     @staticmethod
+    def colour_demosaicing_rgoliveira(raw_nd):
+
+        # raw = rawpy.imread(raw_nd)
+
+        # np array with raw intensities values
+        # print('Copying img array')
+        img = raw_nd
+        # get WB as shot by the camera
+        # camera_wb = raw.camera_whitebalance
+
+        # print some info
+        (h, w) = img.shape
+        # print(f'width x height: {w}x{h}')
+        #
+        # print('Start demosaicing - Bilinear interpolation')
+        #
+        # print('Building channel masks...')
+        channels = dict((channel, np.zeros(img.shape)) for channel in 'RGB')
+        for channel, (y, x) in zip('RGGB', [(0, 0), (0, 1), (1, 0), (1, 1)]):
+            channels[channel][y::2, x::2] = 1
+        R_m, G_m, B_m = tuple(channels[c].astype(bool) for c in 'RGB')
+
+        # convolution kernels
+        # green
+        H_G = np.asarray(
+            [[0, 1, 0],
+             [1, 4, 1],
+             [0, 1, 0]]) / 4
+        # red/blue
+        H_RB = np.asarray(
+            [[1, 2, 1],
+             [2, 4, 2],
+             [1, 2, 1]]) / 4
+
+        # print('Running bilinear interpolation...')
+        R = convolve(img * R_m, H_RB)
+        G = convolve(img * G_m, H_G)
+        B = convolve(img * B_m, H_RB)
+        # print('Stacking channels...')
+        rgb = np.dstack((R, G, B))
+        start_time = time.time()
+
+        elapsed_time = time.time() - start_time
+        # print('Elapsed time:', elapsed_time)
+
+        # print('Normalizing from 0..65535 to 0..1 ...')
+        rgb = rgb / 65535
+
+        # print('White balancing...')
+        # white = np.array(camera_wb[:3]) / 65535
+
+        white = [0.0305333, 0.01562524, 0.02734417]
+        # print('Reference white:', white)
+
+        final = rgb * white
+        # print('Normalizing from 0..1 to 0..255 ...')
+        rgb = rgb * 255
+        final = final * 255
+        # print('Applying gamma encoding (gamma = 1/2.2)...')
+        final = final ** (1 / 2.2)
+
+        return final
+
+
+
+
     def listDevices():
         """
         List available CX3 camera devices
@@ -174,7 +278,6 @@ class Camera(CameraTemplate, ABC):
         self.registerFeature('ImageMode', self.setImageMode)
         self.registerFeature('liveStream', self.setLive)
 
-
     def getCapability(self):
         try:
             cp = v4l2.v4l2_capability()
@@ -191,20 +294,12 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception(f"Failed to get sensor capability: {e}")
 
     def setResolution(self, resolution=[1928,1088]):
-
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
-
-
-        # self.device.ImageWidth = fmt.fmt.pix.width
-        # self.device.ImageHeight = fmt.fmt.pix.height
-        self.device.ImageWidth = 1928
-        self.device.ImageHeight = 938
-
-
+        self.device.ImageWidth = fmt.fmt.pix.width
+        self.device.ImageHeight = fmt.fmt.pix.height
         return self.device.ImageWidth, self.device.ImageHeight
-
 
     def setImageMode(self, Mode='Raw'):
         self.imageMode = Mode
@@ -407,10 +502,9 @@ class Camera(CameraTemplate, ABC):
             images = list()
             for byteArray in byteArrays:
                 image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
+                images.append(np.right_shift(image_array, 6).astype(np.uint16))
 
 
-
-                images.append(np.right_shift(image_array, 6).astype(np.uint16)[149:-1,:])
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             end = time.time()
@@ -419,9 +513,9 @@ class Camera(CameraTemplate, ABC):
             # signal.alarm(0)
             # self.rec_depth = 0
 
-            # if self.imageMode == "Raw":
-            #     images = self.postProcessImage(raw_images=rawImages, blacklevelcorrection=True, colour=False, bit=8)
-            # else:
+            #added by wrangel
+            images = self.postProcessImages(images, colour=False, bit=8, blacklevelcorrection=False)
+
 
             return images
 
@@ -440,6 +534,8 @@ class Camera(CameraTemplate, ABC):
         return images
 
     def getImage(self):
+        print("getimage")
+        start = time.time()
         """
         Get an image from the camera
 
@@ -515,7 +611,10 @@ class Camera(CameraTemplate, ABC):
 
             signal.alarm(0)
             self.rec_depth = 0
-            image_array = image_array[149:-1,:]
+
+
+            end = time.time()
+            print(end-start)
             return image_array
 
         except Exception as e:
@@ -532,31 +631,13 @@ class Camera(CameraTemplate, ABC):
     def blacklevelcorrection(self, image, correction_type="mean"):
         try:
             image = image
-            cwd = '/home/wrangel/dev/pyCameras/pyCameras/'
-            path = os.path.join(cwd + '/images/black_level_mean.npy')
-            if os.path.exists(path):
-                if correction_type == "pixelwise":
-                    blacklevel_image = np.load(path)
-                elif correction_type == "mean":
-                    ref_image = np.load(path)
-                    mean = np.mean(ref_image)
-                    blacklevel_image = np.ones_like(ref_image) * mean
-
-                # blacklevel_image=blacklevel_image[149:-1,:]
-                saturation_image = np.ones_like(image) * 1023
-                if (image > 1000).sum() < 10000:
-                    # corrected_image = np.zeros_like(image).astype(np.int16)
-                    corrected_image = np.subtract(image, blacklevel_image).astype(np.int16)
-                else:
-                    corrected_image = np.where(np.subtract(image, blacklevel_image).astype(np.int16) < 0, np.subtract(saturation_image, blacklevel_image).astype(np.int16),
-                                    np.subtract(image, blacklevel_image).astype(np.int16))
-                blacklevel_factor = 1023 / (np.subtract(saturation_image, blacklevel_image))
-                image = np.multiply(corrected_image.copy(), blacklevel_factor)
-                image = np.clip(image, 0, 1023)
-
+            if (image > 1000).sum() < 10000:
+                corrected_image = np.subtract(image, self.blacklevel_image).astype(np.int16)
             else:
-                raise Exception
-
+                corrected_image = np.where(np.subtract(image, self.blacklevel_image).astype(np.int16) < 0, np.subtract(self.saturation_image, self.blacklevel_image).astype(np.int16),
+                                           np.subtract(image, self.blacklevel_image).astype(np.int16))
+            image = np.multiply(corrected_image.copy(), self.blacklevel_factor)
+            image = np.clip(image, 0, 1023)
             return image
 
         except Exception as e:
@@ -567,16 +648,11 @@ class Camera(CameraTemplate, ABC):
         try:
             images = list()
             if isinstance(raw_images, list):
+                # for raw_image in raw_images:
                 for num, raw_image in enumerate(raw_images, start=1):
-
-                    raw_image_append=np.zeros([1088,1928])
-                    raw_image_append[149:-1,:]=raw_image
-                    raw_image=raw_image_append
-
-
-
                     # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
                     # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                    # print('Datatype of Image before post process : {dtype}'.format(dtype=raw_image.dtype.type))
                     if blacklevelcorrection:
                         raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
@@ -584,16 +660,21 @@ class Camera(CameraTemplate, ABC):
                     raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
                     raw_image = np.clip(raw_image, 0, 1023)
 
-                    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
-                    demosaic_img = np.clip(demosaic_img, 0, 1023)
+                    # demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+                    image= self.colour_demosaicing_rgoliveira(raw_image)
 
-                    norm_image = demosaic_img.copy() / 1023
 
-                    # norm_image = norm_image.copy().astype(np.float32)
 
+                    # demosaic_img = np.clip(demosaic_img, 0, 1023)
+                    #
+                    # norm_image = demosaic_img.copy() / 1023
+                    #
+                    # # norm_image = norm_image.copy().astype(np.float32)
+
+                    norm_image = image.copy()
                     if not colour:
                         norm_image = color.rgb2gray(norm_image)
-
+                    #
                     if bit == 8:
                         image = norm_image.copy() * 255
                         image = image.astype(np.uint8)
@@ -601,12 +682,15 @@ class Camera(CameraTemplate, ABC):
                         image = norm_image.copy() * 1023
                         image = image.astype(np.uint16)
 
-
-
-                    image = image[149:-1,:]
+                    # image = cv2.flip(image,0)
                     name = "images/image" + str(num) + ".jpg"
+                    print(name)
+                    # cv2.imwrite(name, np.right_shift(image_array, 6).astype(np.uint16))
+                    print("max image:",np.max(image))
                     cv2.imwrite(name, image)
 
+
+                    # print('Datatype of Image after post process : {dtype}'.format(dtype=image.dtype.type))
 
                     images.append(image)
             self.logger.debug('Image post processing done')
@@ -791,54 +875,9 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
-def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=False):
-    try:
-        images = list()
-        if isinstance(raw_images, list):
-            for num, raw_image in enumerate(raw_images, start=1):
 
-                raw_image_append = np.zeros([1088, 1928])
-                raw_image_append[149:-1, :] = raw_image
-                raw_image = raw_image_append
 
-                # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
-                # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
-                if blacklevelcorrection:
-                    raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
-                raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
-                raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
-                raw_image = np.clip(raw_image, 0, 1023)
-
-                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
-                demosaic_img = np.clip(demosaic_img, 0, 1023)
-
-                norm_image = demosaic_img.copy() / 1023
-
-                # norm_image = norm_image.copy().astype(np.float32)
-
-                if not colour:
-                    norm_image = color.rgb2gray(norm_image)
-
-                if bit == 8:
-                    image = norm_image.copy() * 255
-                    image = image.astype(np.uint8)
-                if bit == 10:
-                    image = norm_image.copy() * 1023
-                    image = image.astype(np.uint16)
-
-                image = image[149:-1, :]
-                name = "images/image" + str(num) + ".jpg"
-
-                cv2.imwrite(name, image)
-
-                # image=image[199:-1,:]
-                # image[0:150,:]=0
-
-                images.append(image)
-    except Exception as e:
-        print(f"Failed post processing of raw images {e}")
-    return images
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
@@ -852,30 +891,29 @@ if __name__ == '__main__':
     # Code for live view
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(20000)
+    cam.setExposureMicrons(30000)
 
     cam.listFeatures()
     refImageList = list()
     refImageList.append(cam.getImage())
-    ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+    ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=False)[0]
     # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
     cv2.imshow('test', ref_image)
-    while True:
+    for i in range(0, 200):
         ImageList = []
         ImageList.append(cam.getImage())
-        Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+        Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=False)[0]
         if np.array_equal(ref_image, Image):
             print("images are identical")
             break
         ref_image = Image
-        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+        # Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
         cv2.imshow('test', Image)
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
-
     del cam
     ##########################################################
 
@@ -883,9 +921,9 @@ if __name__ == '__main__':
     #########################################################
     # Code for the image acquisition of x Frames
     # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=10)
-    # expectedImages = 50
-    # cam.setExposureMicrons(10000)
+    # cam.setFramerate(framerate=6)
+    # expectedImages = 15
+    # cam.setExposureMicrons(15000)
     # # cam.prepareRecording(expectedImages)
     # # rawImages = cam.record()
     # for i in range(0,1):
