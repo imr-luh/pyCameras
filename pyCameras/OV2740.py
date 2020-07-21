@@ -291,19 +291,19 @@ class Camera(CameraTemplate, ABC):
         read the current trigger setting by passing None
 
         """
-
         if mode is None:
+            # self.TriggerMode = mode
             return self.TriggerMode
 
-        elif mode == r'In':
+        elif mode.lower() == 'in':
             self.TriggerMode = mode
             self.logger.warning(f"Trigger mode not implemented: {mode}")
 
-        elif mode == r'Out':
+        elif mode.lower() == 'out':
             self.logger.info("Camera Out Trigger on")
             self.TriggerMode = mode
 
-        elif mode == r'Off':
+        elif mode.lower() == 'off':
             self.TriggerMode = mode
             self.logger.warning(f"Trigger mode not implemented: {mode}")
 
@@ -315,9 +315,6 @@ class Camera(CameraTemplate, ABC):
         self.logger.info(f"Prepare recording {num} images")
         try:  # empty buffer, otherwise all frames are identical
 
-            # self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-
             if not self.StreamingMode:
                 req = v4l2.v4l2_requestbuffers()
                 req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
@@ -325,6 +322,7 @@ class Camera(CameraTemplate, ABC):
                 req.count = 1  # nr of buffer frames
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
 
+                time.sleep(0.2)
                 for ind in range(req.count):
                     # setup a buffer
                     self.buf = v4l2.v4l2_buffer()
@@ -373,28 +371,11 @@ class Camera(CameraTemplate, ABC):
         return images
 
     def record(self):
-        # def timeout_handler(signum, frame):
-        #     raise (TimeoutError("Failed driver request."))
-        #
-        # signal.signal(signal.SIGALRM, timeout_handler)
-        # signal.alarm(5)
-        self.logger.info(f"Recording {self._expected_images} images, ignore empty image")
-        start = time.time()
         try:
+            self.logger.info(f"Recording {self._expected_images} images, ignore empty image")
+            start = time.time()
             byteArrays = self.readBuffers()
 
-        except Exception as e:
-            # Todo: excetion not called by v4l2
-            self.logger.exception(f"Failed to record images: {e}")
-            time.sleep(0.1)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.acquisition_calls += 1
-            time.sleep(0.1)
-            while self.acquisition_calls < 5:
-                self.prepareRecording(self._expected_images)
-                byteArrays = self.readBuffers()
-
-        finally:
             images = list()
             for byteArray in byteArrays:
                 image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
@@ -404,28 +385,19 @@ class Camera(CameraTemplate, ABC):
             end = time.time()
             self.logger.info(f"capturing took: {end - start}")
             self.StreamingMode = False
-            # signal.alarm(0)
-            # self.rec_depth = 0
-
-            # if self.imageMode == "Raw":
-            #     images = self.postProcessImage(raw_images=rawImages, blacklevelcorrection=True, colour=False, bit=8)
-            # else:
-
             return images
 
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            # time.sleep(0.5)
-            # self.rec_depth += 1
-            # print(self.rec_depth)
-            # if self.rec_depth > 10:
-            #     raise(TimeoutError("HOLY SHIT!"))
-            # return self.record()
+        except Exception as e:
+            self.logger.exception(f"Failed record images: {e}")
 
     def getImages(self, num):
-        self.prepareRecording(num)
-        images = self.record()
-        self.acquisition_calls += 1
-        return images
+        try:
+            self.prepareRecording(num)
+            images = self.record()
+            self.acquisition_calls += 1
+            return images
+        except Exception as e:
+            self.logger.exception(f"Failed getImages: {e}")
 
     def getImage(self):
         """
@@ -434,10 +406,6 @@ class Camera(CameraTemplate, ABC):
         :return: image : np.ndarray
             Image of camera device
         """
-        def timeout_handler(signum, frame):
-            raise(TimeoutError("Failed driver request."))
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(2)
         try:
             rawImage = []
             self.buffers = []
@@ -448,6 +416,7 @@ class Camera(CameraTemplate, ABC):
             req.memory = v4l2.V4L2_MEMORY_MMAP
             req.count = 1  # nr of buffer frames
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
+            time.sleep(0.2)
 
             for ind in range(req.count):
                 # setup a buffer
@@ -507,14 +476,6 @@ class Camera(CameraTemplate, ABC):
 
         except Exception as e:
             self.logger.exception(f"Failed getImage: {e}")
-            # TODO: Rekursionstiefe begrenzen
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            time.sleep(0.1)
-            self.rec_depth += 1
-            print(self.rec_depth)
-            if self.rec_depth > 10:
-                raise(TimeoutError("HOLY SHIT!"))
-            return self.getImage()
 
     def blacklevelcorrection(self, image, correction_type="mean"):
         try:
@@ -808,54 +769,55 @@ if __name__ == '__main__':
 
 
     ##########################################################
-    # Code for live view
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=6)
-    cam.setExposureMicrons(20000)
-
-    cam.listFeatures()
-    refImageList = list()
-    refImageList.append(cam.getImage())
-    ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
-    # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
-    while True:
-        ImageList = []
-        ImageList.append(cam.getImage())
-        Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
-        if np.array_equal(ref_image, Image):
-            print("images are identical")
-            break
-        ref_image = Image
-        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-        cv2.imshow('test', Image)
-        key = cv2.waitKey(1)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-
-    del cam
+    # # Code for live view
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=6)
+    # cam.setExposureMicrons(20000)
+    #
+    # cam.listFeatures()
+    # refImageList = list()
+    # refImageList.append(cam.getImage())
+    # ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+    # # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # cv2.imshow('test', ref_image)
+    # while True:
+    #     ImageList = []
+    #     ImageList.append(cam.getImage())
+    #     Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+    #     if np.array_equal(ref_image, Image):
+    #         print("images are identical")
+    #         break
+    #     ref_image = Image
+    #     Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+    #     cv2.imshow('test', Image)
+    #     key = cv2.waitKey(1)
+    #     if key & 0xFF == ord('q'):
+    #         cv2.destroyAllWindows()
+    #         break
+    #
+    # del cam
     ##########################################################
 
 
     #########################################################
     # Code for the image acquisition of x Frames
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=10)
-    # expectedImages = 50
-    # cam.setExposureMicrons(10000)
-    # # cam.prepareRecording(expectedImages)
-    # # rawImages = cam.record()
-    # for i in range(0,1):
-    #     cam.prepareRecording(expectedImages)
-    #     Images = cam.record()
-    #     # time.sleep(1)
-    #
-    # Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
-    # plt.imshow(Images[3])
-    # plt.show()
-    # del cam
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=6)
+    expectedImages = 19
+    cam.setExposureMicrons(10000)
+    # cam.prepareRecording(expectedImages)
+    # rawImages = cam.record()
+    for i in range(0,1000):
+        cam.prepareRecording(expectedImages)
+        Images = cam.record()
+        print(i)
+        # time.sleep(1)
+
+    Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
+    plt.imshow(Images[3])
+    plt.show()
+    del cam
     #########################################################
 
     # ##########################################################
