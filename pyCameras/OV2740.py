@@ -356,7 +356,7 @@ class Camera(CameraTemplate, ABC):
 
     def readBuffers(self):
         images = list()
-        for index in range(0, self._expected_images):  # capture 50 frames
+        for index in range(0, self._expected_images):  # capture x frames
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             mm = self.buffers[self.buf.index]
@@ -409,14 +409,15 @@ class Camera(CameraTemplate, ABC):
         try:
             rawImage = []
             self.buffers = []
-            if not self.liveStream:
-                self.logger.debug(f"prepare get frame.")
+
+            self.logger.info("get single image")
             req = v4l2.v4l2_requestbuffers()
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
             req.count = 1  # nr of buffer frames
+            time.sleep(0.01)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
-            time.sleep(0.2)
+            time.sleep(0.01)
 
             for ind in range(req.count):
                 # setup a buffer
@@ -424,19 +425,21 @@ class Camera(CameraTemplate, ABC):
                 self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
                 self.buf.memory = v4l2.V4L2_MEMORY_MMAP
                 self.buf.index = ind
+                time.sleep(0.01)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
+                time.sleep(0.01)
 
                 mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
                                offset=self.buf.m.offset)
                 self.buffers.append(mm)
 
                 # queue the buffer for capture
+                time.sleep(0.01)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
-                if not self.liveStream:
-                    self.logger.info("Sensor starts streaming")
                 self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
+                time.sleep(0.01)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
-                time.sleep(0.05)
+                time.sleep(0.01)
 
 
             t0 = time.time()
@@ -446,22 +449,20 @@ class Camera(CameraTemplate, ABC):
             while len(ready_to_read) == 0 and time.time() - t0 < max_t:
                 ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
 
+            time.sleep(0.01)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            time.sleep(0.01)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-            if not self.liveStream:
-                self.logger.info("get single image, ignore empty image")
 
-            # time.sleep(0.05)
+            time.sleep(0.01)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            # time.sleep(0.05)
+            time.sleep(0.01)
             mm = self.buffers[self.buf.index]
 
             image_bytestream = mm.read()
             mm.seek(0)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-
+            time.sleep(0.01)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.StreamingMode = False
 
@@ -769,7 +770,7 @@ if __name__ == '__main__':
 
 
     ##########################################################
-    # # Code for live view
+    # Code for live view
     # cam.setTriggerMode("Out")
     # cam.setFramerate(framerate=6)
     # cam.setExposureMicrons(20000)
@@ -777,19 +778,19 @@ if __name__ == '__main__':
     # cam.listFeatures()
     # refImageList = list()
     # refImageList.append(cam.getImage())
-    # ref_image = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+    # ref_images = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=False)
     # # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
     # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', ref_image)
+    # cv2.imshow('test', ref_images[0])
     # while True:
     #     ImageList = []
     #     ImageList.append(cam.getImage())
-    #     Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
-    #     if np.array_equal(ref_image, Image):
+    #     Images = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=False)
+    #     if np.array_equal(ref_images[0], Images[0]):
     #         print("images are identical")
     #         break
-    #     ref_image = Image
-    #     Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+    #     ref_images = Images
+    #     Image = cv2.cvtColor(Images[0], cv2.COLOR_BGR2RGB)
     #     cv2.imshow('test', Image)
     #     key = cv2.waitKey(1)
     #     if key & 0xFF == ord('q'):
