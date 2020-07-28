@@ -133,6 +133,7 @@ class Camera(CameraTemplate, ABC):
         self.imageMode = None
         self.streamingMode = False
         self.openDevice()
+        self.cameraImages = None
         # self.registerSharedFeatures()
         self.registerFeatures()
         self.getCapability()
@@ -348,20 +349,21 @@ class Camera(CameraTemplate, ABC):
 
             while len(ready_to_read) == 0 and time.time() - t0 < max_t:
                 ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
-            time.sleep(0.01)
+
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            time.sleep(0.01)
+
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
         except Exception as e:
             self.logger.exception(f"Failed to prepare recording: {e}")
+            # todo: this is dirty
+            # self.prepareRecording(self._expected_images)
 
     def readBuffers(self):
         images = list()
         for index in range(0, self._expected_images):  # capture x frames
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            # time.sleep(0.1)
             mm = self.buffers[self.buf.index]
 
             image_bytestream = mm.read()
@@ -376,23 +378,29 @@ class Camera(CameraTemplate, ABC):
     def record(self):
         try:
             self.logger.info(f"Recording {self._expected_images} images")
-            time.sleep(0.01)
             start = time.time()
             byteArrays = self.readBuffers()
 
-            images = list()
+            self.cameraImages = []
             for byteArray in byteArrays:
                 image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
-                images.append(np.right_shift(image_array, 6).astype(np.uint16))
+                self.cameraImages.append(np.right_shift(image_array, 6).astype(np.uint16))
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
             end = time.time()
             self.logger.info(f"capturing took: {end - start}")
-            return images
+
 
         except Exception as e:
             self.logger.exception(f"Failed record images: {e}")
+            # todo: this is dirty
+            # self.prepareRecording(num=self._expected_images)
+            # self.record()
+
+        finally:
+            return self.cameraImages
+
 
     def getImages(self, num):
         try:
@@ -423,36 +431,10 @@ class Camera(CameraTemplate, ABC):
         req.memory = v4l2.V4L2_MEMORY_MMAP
         req.count = 1  # nr of buffer frames
         try:
-<<<<<<< HEAD
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
         except OSError as e:
             if not e.errno == errno.EBUSY:
                 raise
-
-        # time.sleep(0.01)
-=======
-            rawImage = []
-            self.buffers = []
-
-            self.logger.info("get single image")
-            req = v4l2.v4l2_requestbuffers()
-            req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-            req.memory = v4l2.V4L2_MEMORY_MMAP
-            req.count = 1  # nr of buffer frames
-            time.sleep(0.01)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
-            time.sleep(0.01)
-
-            for ind in range(req.count):
-                # setup a buffer
-                self.buf = v4l2.v4l2_buffer()
-                self.buf.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-                self.buf.memory = v4l2.V4L2_MEMORY_MMAP
-                self.buf.index = ind
-                time.sleep(0.01)
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)
-                time.sleep(0.01)
->>>>>>> 4e7cfc69d7bf7a51e18015b9527fd62417402b11
 
         for ind in range(req.count):
             # setup a buffer
@@ -461,7 +443,6 @@ class Camera(CameraTemplate, ABC):
             self.buf.memory = v4l2.V4L2_MEMORY_MMAP
             self.buf.index = ind
 
-<<<<<<< HEAD
             try:
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)  # tell the driver that we want some buffers
             except OSError as e:
@@ -469,8 +450,6 @@ class Camera(CameraTemplate, ABC):
                     continue
                 else:
                     raise
-
-
 
             mm = mmap.mmap(self.device.fileno(), self.buf.length, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
                            offset=self.buf.m.offset)
@@ -493,30 +472,15 @@ class Camera(CameraTemplate, ABC):
                     continue
                 else:
                     raise
-=======
-                # queue the buffer for capture
-                time.sleep(0.01)
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
-                self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-                time.sleep(0.01)
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
-                time.sleep(0.01)
->>>>>>> 4e7cfc69d7bf7a51e18015b9527fd62417402b11
 
-            self.streamingMode = True
+        self.streamingMode = True
 
-            # time.sleep(0.01)
-
-
-<<<<<<< HEAD
         t0 = time.time()
         max_t = 1
         ready_to_read, ready_to_write, in_error = ([], [], [])
 
         while len(ready_to_read) == 0 and time.time() - t0 < max_t:
             ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
-
-        # time.sleep(0.01)
 
         try:
             # black/empty image
@@ -531,31 +495,10 @@ class Camera(CameraTemplate, ABC):
             if not e.errno == errno.EBUSY:
                 raise
 
-        # time.sleep(0.05)
         mm = self.buffers[self.buf.index]
-=======
-            time.sleep(0.01)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            time.sleep(0.01)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-
-            time.sleep(0.01)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
-            time.sleep(0.01)
-            mm = self.buffers[self.buf.index]
-
-            image_bytestream = mm.read()
-            mm.seek(0)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
-            time.sleep(0.01)
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.StreamingMode = False
->>>>>>> 4e7cfc69d7bf7a51e18015b9527fd62417402b11
 
         image_bytestream = mm.read()
         mm.seek(0)
-        # time.sleep(0.01)
-
         try:
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
@@ -880,7 +823,6 @@ if __name__ == '__main__':
 
     ##########################################################
     # Code for live view
-<<<<<<< HEAD
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=6)
     cam.setExposureMicrons(15000)
@@ -911,36 +853,8 @@ if __name__ == '__main__':
         i +=1
 
     del cam
-=======
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=6)
-    # cam.setExposureMicrons(20000)
-    #
-    # cam.listFeatures()
-    # refImageList = list()
-    # refImageList.append(cam.getImage())
-    # ref_images = cam.postProcessImages(refImageList, colour=True, bit=8, blacklevelcorrection=False)
-    # # ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', ref_images[0])
-    # while True:
-    #     ImageList = []
-    #     ImageList.append(cam.getImage())
-    #     Images = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=False)
-    #     if np.array_equal(ref_images[0], Images[0]):
-    #         print("images are identical")
-    #         break
-    #     ref_images = Images
-    #     Image = cv2.cvtColor(Images[0], cv2.COLOR_BGR2RGB)
-    #     cv2.imshow('test', Image)
-    #     key = cv2.waitKey(1)
-    #     if key & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #         break
-    #
-    # del cam
->>>>>>> 4e7cfc69d7bf7a51e18015b9527fd62417402b11
-    ##########################################################
+
+    #########################################################
 
 
     #########################################################
