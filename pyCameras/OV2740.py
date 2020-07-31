@@ -5,7 +5,6 @@ __email__ = "philipp.middendorf@imr.uni-hannover.de"
 __status__ = "Development"
 
 # check this repository for implementation https://github.com/AlexJinlei/python-v4l2
-
 import logging
 import signal
 from abc import ABC
@@ -24,7 +23,7 @@ from threading import Event
 import sys
 import copy
 from skimage import color
-
+from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = logging.DEBUG
@@ -820,7 +819,6 @@ if __name__ == '__main__':
     # cam = Camera(available_devices[-1])
     cam = Camera(available_devices[1])
 
-
     ##########################################################
     # Code for live view
     cam.setTriggerMode("Out")
@@ -838,22 +836,26 @@ if __name__ == '__main__':
     while True:
         cam.logger.debug(f'Iteration: {i}')
         ImageList = []
-        ImageList.append(cam.getImage())
-        Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
-        if np.array_equal(ref_image, Image):
-            print("images are identical")
-            break
-        ref_image = Image
-        Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-        cv2.imshow('test', Image)
-        key = cv2.waitKey(1)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-        i +=1
-
+        try:
+            img = func_timeout(2,cam.getImage)
+        except:
+            logger.debug('get Image failed')
+            img = cam.getImage()
+        finally:
+            ImageList.append(img)
+            Image = cam.postProcessImages(ImageList, colour=True, bit=8, blacklevelcorrection=True)[0]
+            if np.array_equal(ref_image, Image):
+                print("images are identical")
+                break
+            ref_image = Image
+            Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+            cv2.imshow('test', Image)
+            key = cv2.waitKey(1)
+            if key & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                break
+            i +=1
     del cam
-
     #########################################################
 
 
