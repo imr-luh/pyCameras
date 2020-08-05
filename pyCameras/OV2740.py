@@ -134,8 +134,10 @@ class Camera(CameraTemplate, ABC):
         self.openDevice()
         self.cameraImages = None
         # self.registerSharedFeatures()
+        self.measurementMode = True
         self.registerFeatures()
         self.getCapability()
+        self.recording_time = None
         # self.setImageMode(Mode='Raw')
         self.setResolution(resolution=[1928,1088])
         # self.setFramerate(framerate=6)
@@ -198,7 +200,6 @@ class Camera(CameraTemplate, ABC):
 
     def setImageMode(self, Mode='Raw'):
         self.imageMode = Mode
-
 
     def getExposureInfo(self):
         try:
@@ -310,10 +311,13 @@ class Camera(CameraTemplate, ABC):
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
+        if self.measurementMode:
+            self._expected_images = num *2 + 2
+        else:
+            self._expected_images = num
 
-        self._expected_images = num
         self.buffers = []
-        self.logger.info(f"Prepare recording {num} images")
+        self.logger.info(f"Prepare recording {self._expected_images} images")
         try:  # empty buffer, otherwise all frames are identical
 
             req = v4l2.v4l2_requestbuffers()
@@ -322,7 +326,6 @@ class Camera(CameraTemplate, ABC):
             req.count = 1  # nr of buffer frames
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
 
-            time.sleep(0.01)
             for ind in range(req.count):
                 # setup a buffer
                 self.buf = v4l2.v4l2_buffer()
@@ -379,23 +382,55 @@ class Camera(CameraTemplate, ABC):
             self.logger.info(f"Recording {self._expected_images} images")
             start = time.time()
             byteArrays = self.readBuffers()
-
+            self.recording_time = time.time() - start
+            self.measurementMode = True
             self.cameraImages = []
-            for byteArray in byteArrays:
-                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
-                self.cameraImages.append(np.right_shift(image_array, 6).astype(np.uint16))
+            rawImages = []
+            for bytearray in byteArrays:
+                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=bytearray).astype(np.uint16)
+                rawImages.append(np.right_shift(image_array, 6).astype(np.uint16))
+
+            if self.measurementMode:
+                checkFFT = True
+                if checkFFT:
+                    startImage = self.checkfirstPhase(rawImages)
+
+                    image_counter = 0
+                    for i in range(startImage,len(rawImages)):
+                        if image_counter % 2 == 0:
+                            self.cameraImages.append(rawImages[i])
+                        image_counter += 1
+                else:
+                    calibration_time = 3.66
+                    measurement_time = 3.472
+                    # if self.recording_time < measurement_time:
+                    if self.recording_time < calibration_time:
+                        for i in range(0,len(byteArrays)):
+                            if i > 1 and i % 2 != 0:
+                                self.cameraImages.append(rawImages[i])
+                    else:
+                        for i in range(0,len(byteArrays)):
+                            if i > 1 and i % 2 == 0:
+                                self.cameraImages.append(rawImages[i])
+
+                    # elif self.recording_time > 3.62:
+                    #     for i in range(0,len(byteArrays)-2):
+                    #         image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArrays[i]).astype(np.uint16)
+                    #         if i % 2 != 0:
+                    #             self.cameraImages.append(np.right_shift(image_array, 6).astype(np.uint16))
+                    # else:
+                    #     raise Exception("image acquisition time not within limits")
+            else:
+                for i in range(0, len(byteArrays)):
+                    self.cameraImages.append(rawImages[i])
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
-            end = time.time()
-            self.logger.info(f"capturing took: {end - start}")
 
+            self.logger.info(f"capturing took: {self.recording_time}")
 
         except Exception as e:
             self.logger.exception(f"Failed record images: {e}")
-            # todo: this is dirty
-            # self.prepareRecording(num=self._expected_images)
-            # self.record()
 
         finally:
             return self.cameraImages
@@ -774,16 +809,22 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
-def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=False):
+    def checkfirstPhase(self, images, checkFFT=False):
+        ref_image = images[0]
+        for i in range(1, len(images)):
+            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 8:
+                i += 1
+                return i
+
+def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=False, checkPhases=False):
     try:
         images = list()
         if isinstance(raw_images, list):
+            i = 0
             for raw_image in raw_images:
-                # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
-                # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                i += 1
                 if blacklevelcorrection:
                     raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
-
                 raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
                 raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
                 raw_image = np.clip(raw_image, 0, 1023)
@@ -804,7 +845,7 @@ def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=Fals
                 if bit == 10:
                     image = norm_image.copy() * 1023
                     image = image.astype(np.uint16)
-
+                # cv2.imwrite(str(i)+".png",image)
                 images.append(image)
     except Exception as e:
         print(f"Failed post processing of raw images {e}")
