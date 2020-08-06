@@ -579,43 +579,54 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed black level correction: {e}")
 
+    def demosaicImage(self, raw_image, colour=False, bit=8):
+        raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
+        raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
+        raw_image = np.clip(raw_image, 0, 1023)
+
+        demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+        demosaic_img = np.clip(demosaic_img, 0, 1023)
+
+        norm_image = demosaic_img.copy() / 1023
+
+        if not colour:
+            norm_image = color.rgb2gray(norm_image)
+
+        if bit == 8:
+            image = norm_image.copy() * 255
+            image = image.astype(np.uint8)
+        elif bit == 10:
+            image = norm_image.copy() * 1023
+            image = image.astype(np.uint16)
+        else:
+            image = norm_image
+        return image
 
     def postProcessImages(self, raw_images, colour=False, bit=8, blacklevelcorrection=False):
         self.logger.debug('Image post processing')
         try:
+            # i = 0
             images = list()
             if isinstance(raw_images, list):
                 for raw_image in raw_images:
-                    # image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=image).astype(np.uint16)
-                    # rawImage = np.right_shift(image_array, 6).astype(np.uint16)
+                    # i += 1
                     if blacklevelcorrection:
                         raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
-                    raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
-                    raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
-                    raw_image = np.clip(raw_image, 0, 1023)
-
-                    demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
-                    demosaic_img = np.clip(demosaic_img, 0, 1023)
-
-                    norm_image = demosaic_img.copy() / 1023
-
-                    # norm_image = norm_image.copy().astype(np.float32)
-
-                    if not colour:
-                        norm_image = color.rgb2gray(norm_image)
-
-                    if bit == 8:
-                        image = norm_image.copy() * 255
-                        image = image.astype(np.uint8)
-                    if bit == 10:
-                        image = norm_image.copy() * 1023
-                        image = image.astype(np.uint16)
-
+                    image = self.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
+                    # cv2.imwrite(str(i)+".png", image)
                     images.append(image)
+
+            else:
+                if blacklevelcorrection:
+                    raw_images = self.blacklevelcorrection(image=raw_images, correction_type="mean")
+
+                images = self.demosaicImage(raw_image=raw_images, colour=colour, bit=bit)
+                # cv2.imwrite("Test.png", images)
 
         except Exception as e:
             self.logger.exception(f"Failed post processing of raw images {e}")
+
         return images
 
 
@@ -812,45 +823,9 @@ class Camera(CameraTemplate, ABC):
     def checkfirstPhase(self, images, checkFFT=False):
         ref_image = images[0]
         for i in range(1, len(images)):
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 8:
+            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 5:
                 i += 1
                 return i
-
-def postProcessImages(raw_images, colour=False, bit=8, blacklevelcorrection=False, checkPhases=False):
-    try:
-        images = list()
-        if isinstance(raw_images, list):
-            i = 0
-            for raw_image in raw_images:
-                i += 1
-                if blacklevelcorrection:
-                    raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
-                raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
-                raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
-                raw_image = np.clip(raw_image, 0, 1023)
-
-                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
-                demosaic_img = np.clip(demosaic_img, 0, 1023)
-
-                norm_image = demosaic_img.copy() / 1023
-
-                # norm_image = norm_image.copy().astype(np.float32)
-
-                if not colour:
-                    norm_image = color.rgb2gray(norm_image)
-
-                if bit == 8:
-                    image = norm_image.copy() * 255
-                    image = image.astype(np.uint8)
-                if bit == 10:
-                    image = norm_image.copy() * 1023
-                    image = image.astype(np.uint16)
-                # cv2.imwrite(str(i)+".png",image)
-                images.append(image)
-    except Exception as e:
-        print(f"Failed post processing of raw images {e}")
-    return images
-
 
 
 if __name__ == '__main__':
