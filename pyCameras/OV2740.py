@@ -25,6 +25,8 @@ import copy
 from skimage import color
 from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
+from typing import List, Tuple, Union, BinaryIO
+
 
 LOGGING_LEVEL = logging.DEBUG
 
@@ -39,7 +41,7 @@ class Controller(ControllerTemplate):
             self.logger.setLevel(LOGGING_LEVEL)
 
         self.logger.info("Starting OV2740 Camera Controller")
-        self.device_handles = []
+        self.device_handles: List[str] = []
 
     def updateDeviceHandles(self) -> int:
         """
@@ -80,8 +82,6 @@ class Controller(ControllerTemplate):
             return Camera(device_handle)
         except Exception as e:
             self.logger.exception(f'Failed to open the camera device: {e}')
-            msg = '<Was not able to open camera with given device handle!!'
-            e.message = msg
             raise
 
     def __del__(self) -> None:
@@ -90,9 +90,9 @@ class Controller(ControllerTemplate):
 
         """
         self.logger.debug(f"Deleting Camera Controller {self}")
-        self.device_handles = None
+        self.device_handles = []
 
-    def __repr__(self) -> None:
+    def __repr__(self) -> str:
         """
         :return: str
         """
@@ -115,24 +115,24 @@ class Camera(CameraTemplate, ABC):
         if self.device_handle is None:
             raise ConnectionError
 
-        self.img_data = []
-        self._expected_images = 0
-        self.ExposureMicrons = 0
-        self.TriggerMode = None
-        self.buffers = []
-        self.buf = None
-        self.buf_type = None
-        self.acquisition_calls = 0
-        self.imageMode = None
-        self.streamingMode = False
+        self.img_data: List[np.ndarray] = []
+        self._expected_images: int  = 0
+        self.ExposureMicrons: int = 0
+        self.TriggerMode: str = ""
+        self.buffers: List[object] = []
+        self.buf: v4l2.v4l2_buffer = v4l2.v4l2_buffer()
+        self.buf_type: int = 0
+        self.acquisition_calls: int = 0
+        self.imageMode: str = ""
+        self.streamingMode: bool = False
         self.openDevice()
-        self.cameraImages = None
-        self.measurementMode = True
+        self.cameraImages: List[np.ndarray] = []
+        self.measurementMode: bool = True
         self.registerFeatures()
         self.getCapability()
-        self.recording_time = None
-        self.setResolution(resolution=[1928, 1088])
-        self.rec_depth = 0
+        self.recording_time: float = 0
+        self.ImageWidth: int = 0
+        self.ImageHeight: int  = 0
 
     @staticmethod
     def listDevices() -> str:
@@ -164,23 +164,24 @@ class Camera(CameraTemplate, ABC):
         try:
             cp = v4l2.v4l2_capability()
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYCAP), cp)
-            return cp
 
         except Exception as e:
             self.logger.exception(f"Failed to get sensor capability: {e}")
 
-    def setResolution(self, resolution: tuple = [1928, 1088]) -> int and int:
+        return cp
+
+    def setResolution(self, resolution: Tuple[int, int] = (1928, 1088)) -> Tuple[int,int]:
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
-        self.device.ImageWidth = fmt.fmt.pix.width
-        self.device.ImageHeight = fmt.fmt.pix.height
-        return self.device.ImageWidth, self.device.ImageHeight
+        self.ImageWidth = fmt.fmt.pix.width
+        self.ImageHeight = fmt.fmt.pix.height
+        return self.ImageWidth, self.ImageHeight
 
     def setImageMode(self, Mode: str = 'Raw') -> None:
         self.imageMode = Mode
 
-    def getExposureInfo(self) -> object and object:
+    def getExposureInfo(self) -> Tuple[v4l2.v4l2_queryctrl, v4l2.v4l2_control]:
         try:
             # query control
             qc = v4l2.v4l2_queryctrl()
@@ -195,10 +196,11 @@ class Camera(CameraTemplate, ABC):
 
             self.logger.debug(
                 f'Min exposure time {qc.minimum * 100}us, max {qc.maximum * 100}us, default {qc.default * 100}us, Steps {qc.step * 100}us, current {gc.value * 100}us')
-            return qc, gc
 
         except Exception as e:
             self.logger.exception(f"Failed to get ExposureInfo: {e}")
+
+        return qc, gc
 
     def openDevice(self) -> None:
         """
@@ -207,7 +209,7 @@ class Camera(CameraTemplate, ABC):
         :return:
         """
         try:
-            self.device = open(str('/dev/' + str(self.device_handle)), 'rb+', buffering=0)
+            self.device: BinaryIO = open(str('/dev/' + str(self.device_handle)), 'rb+', buffering=0)
             self.logger.debug(f'Opened camera device: {self.device.name}')
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
@@ -225,10 +227,11 @@ class Camera(CameraTemplate, ABC):
             fmt = v4l2.v4l2_format()
             fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
-            return fmt
 
         except Exception as e:
             self.logger.exception(e)
+
+        return fmt
 
     def closeDevice(self) -> None:
         """
@@ -238,7 +241,6 @@ class Camera(CameraTemplate, ABC):
             try:
                 self.logger.debug('Closing camera device: {self.device}')
                 del self.device
-                self.device = None
 
             except Exception as e:
                 self.logger.exception(f"Failed to close the camera device: {e}")
@@ -303,14 +305,15 @@ class Camera(CameraTemplate, ABC):
 
                 # queue the buffer for capture
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
-
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
             self.streamingMode = True
 
             t0 = time.time()
             max_t = 1
-            ready_to_read, ready_to_write, in_error = ([], [], [])
+            ready_to_read: list = []
+            ready_to_write: list = []
+            in_error: list = []
 
             while len(ready_to_read) == 0 and time.time() - t0 < max_t:
                 ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
@@ -322,7 +325,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to prepare recording: {e}")
 
-    def readBuffers(self) -> list:
+    def readBuffers(self) -> List[bytearray]:
         images = list()
         for index in range(0, self._expected_images):  # capture x frames
 
@@ -338,12 +341,13 @@ class Camera(CameraTemplate, ABC):
             index += 1
         return images
 
-    def record(self) -> list:
+    def record(self) -> List[np.ndarray]:
         try:
             self.logger.info(f"Recording {self._expected_images} images")
             start = time.time()
             byteArrays = self.readBuffers()
-            self.recording_time = time.time() - start
+            end = time.time()
+            self.recording_time = end - start
             self.measurementMode = True
             self.cameraImages = []
             rawImages = []
@@ -388,16 +392,16 @@ class Camera(CameraTemplate, ABC):
         finally:
             return self.cameraImages
 
-    def getImages(self, num: int = 1) -> list:
+    def getImages(self, num: int = 1) -> List[np.ndarray]:
         try:
             self.prepareRecording(num)
             images = self.record()
             self.acquisition_calls += 1
-            return images
         except Exception as e:
             self.logger.exception(f"Failed getImages: {e}")
+        return images
 
-    def getImage(self) -> np.array:
+    def getImage(self) -> np.ndarray:
         """
         Get an image from the camera
 
@@ -409,7 +413,7 @@ class Camera(CameraTemplate, ABC):
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
 
-        rawImage = []
+        rawImage: list = []
         self.buffers = []
         self.logger.debug("get single frame.")
         req = v4l2.v4l2_requestbuffers()
@@ -464,7 +468,9 @@ class Camera(CameraTemplate, ABC):
 
         t0 = time.time()
         max_t = 1
-        ready_to_read, ready_to_write, in_error = ([], [], [])
+        ready_to_read: list = []
+        ready_to_write: list = []
+        in_error: list = []
 
         while len(ready_to_read) == 0 and time.time() - t0 < max_t:
             ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
@@ -500,7 +506,7 @@ class Camera(CameraTemplate, ABC):
         image_array = np.right_shift(image_array, 6).astype(np.uint16)
         return image_array
 
-    def blacklevelcorrection(self, image: object, correction_type: str = "mean") -> np.array:
+    def blacklevelcorrection(self, image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
         try:
             image = image
             cwd = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/'
@@ -515,7 +521,6 @@ class Camera(CameraTemplate, ABC):
 
                 saturation_image = np.ones_like(image) * 1023
                 if (image > 1000).sum() < 10000:
-                    # corrected_image = np.zeros_like(image).astype(np.int16)
                     corrected_image = np.subtract(image, blacklevel_image).astype(np.int16)
                 else:
                     corrected_image = np.where(np.subtract(image, blacklevel_image).astype(np.int16) < 0,
@@ -533,7 +538,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed black level correction: {e}")
 
-    def demosaicImage(self, raw_image: object, colour: bool = False, bit: int = 8) -> np.array:
+    def demosaicImage(self, raw_image: np.ndarray, colour: bool = False, bit: int = 8) -> np.ndarray:
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
         raw_image = np.clip(raw_image, 0, 1023)
@@ -556,8 +561,8 @@ class Camera(CameraTemplate, ABC):
             image = norm_image
         return image
 
-    def postProcessImages(self, raw_images: list or object, colour: bool = False, bit: int = 8,
-                          blacklevelcorrection: bool = False) -> list or np.array:
+    def postProcessImages(self, raw_images: Union[List[np.ndarray], np.ndarray], colour: bool = False, bit: int = 8,
+                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], np.ndarray]:
         self.logger.debug('Image post processing')
         try:
             # i = 0
@@ -584,7 +589,7 @@ class Camera(CameraTemplate, ABC):
 
         return images
 
-    def setExposureMicrons(self, microns: int = None) -> int:
+    def setExposureMicrons(self, microns: int = 0) -> int:
         """
         Set the exposure time to the given value in microseconds or read the
         current value by passing None
@@ -602,15 +607,12 @@ class Camera(CameraTemplate, ABC):
         """
         if self.streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
-            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
 
-        if microns is not None:
+        if microns != 0:
             try:
-
                 qc, gc = self.getExposureInfo()
-
                 self.logger.debug(f'Setting exposure time to {microns}us')
 
                 # v4l interprets 1 as 100us -> devide microns by 100 to get the correct value
@@ -618,7 +620,6 @@ class Camera(CameraTemplate, ABC):
                 if v4l2_exposure == gc.value:
                     self.logger.debug(f'Exposure time was already set to {microns}us')
                     self.ExposureMicrons = microns
-                    return microns
 
                 elif v4l2_exposure != gc.value and qc.minimum <= v4l2_exposure <= qc.maximum:
                     # set control value
@@ -630,7 +631,6 @@ class Camera(CameraTemplate, ABC):
 
                     if v4l2_exposure == gc.value:
                         self.ExposureMicrons = microns
-                        return microns
                     else:
                         raise Exception
                 else:
@@ -638,6 +638,7 @@ class Camera(CameraTemplate, ABC):
 
             except Exception as e:
                 self.logger.exception(f"Failed to set exposure time: {e}")
+            return microns
 
         else:
             return self.ExposureMicrons
@@ -688,10 +689,10 @@ class Camera(CameraTemplate, ABC):
         """
         self.logger.debug(f"Deleting Camera Object {self}")
 
-        if self.device is not None:
+        if not self.device:
             del self.device
 
-    def analyseBlackLevel(self, raw_images: list, channel: str = None, display: bool = False) -> int and int:
+    def analyseBlackLevel(self, raw_images: np.ndarray, channel: str = "", display: bool = False) -> Tuple[int, int]:
         if isinstance(raw_images, list):
             index = 0
             for image in raw_images:
@@ -767,12 +768,18 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def checkfirstPhase(self, images: object) -> int:
+    def checkfirstPhase(self, images: np.ndarray) -> int:
         ref_image = images[0]
         for i in range(1, len(images)):
+            print(np.abs(np.mean(ref_image) - np.mean(images[i])))
             if np.abs(np.mean(ref_image) - np.mean(images[i])) > 5:
                 i += 1
-                return i
+                firstPhase = i
+                break
+            else:
+                firstPhase = 2
+
+        return firstPhase
 
 
 if __name__ == '__main__':
@@ -796,7 +803,7 @@ if __name__ == '__main__':
     i = 0
     while True:
         cam.logger.debug(f'Iteration: {i}')
-        ImageList = []
+        ImageList: list = []
         try:
             img = func_timeout(2, cam.getImage)
         except:
