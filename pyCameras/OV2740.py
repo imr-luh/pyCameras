@@ -419,7 +419,8 @@ class Camera(CameraTemplate, ABC):
         req = v4l2.v4l2_requestbuffers()
         req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         req.memory = v4l2.V4L2_MEMORY_MMAP
-        req.count = 1  # nr of buffer frames
+        # req.count = 1  # nr of buffer frames
+        req.count = 2  # nr of buffer frames
         try:
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
         except OSError as e:

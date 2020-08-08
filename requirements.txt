@@ -5,14 +5,7 @@ scipy
 opencv-python
 svgwrite
 PyQt5
-
+v4l2
+scikit-image
+colour_demosaicing
 matplotlib
-
-# Internal git libs
-# Some general functions from imrpy (calibration function, utils etc.)
--e git+git@gitlab.imr.uni-hannover.de:imr/imrpy.git#egg=imrpy
-# Projector stuff
--e git+git@gitlab.imr.uni-hannover.de:imr/pyCrafter4500.git#egg=pyCrafter4500
--e git+git@gitlab.imr.uni-hannover.de:imr/pyProjectors.git#egg=pyProjectors
-# Camera stuff
--e git+git@gitlab.imr.uni-hannover.de:imr/pyCameras.git#egg=pyCameras
