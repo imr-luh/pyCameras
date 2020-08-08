@@ -25,8 +25,8 @@ import copy
 from skimage import color
 from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
-from typing import List, Tuple, Union, BinaryIO, Dict, Any
-
+from typing import List, Tuple, Union, BinaryIO
+import cython
 
 LOGGING_LEVEL = logging.DEBUG
 
@@ -506,8 +506,7 @@ class Camera(CameraTemplate, ABC):
         image_array = np.right_shift(image_array, 6).astype(np.uint16)
         return image_array
 
-    @staticmethod
-    def blacklevelcorrection(image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
+    def blacklevelcorrection(self, image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
         try:
             image = image
             cwd = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/'
@@ -531,13 +530,15 @@ class Camera(CameraTemplate, ABC):
                 image = np.multiply(corrected_image.copy(), blacklevel_factor)
                 image = np.clip(image, 0, 1023)
 
-        except Exception as e:
-            raise
-            # self.logger.exception(f"Failed black level correction: {e}")
-        return image
+            else:
+                raise Exception
 
-    @staticmethod
-    def demosaicImage(raw_image: np.ndarray, colour: bool = False, bit: int = 8) -> np.ndarray:
+            return image
+
+        except Exception as e:
+            self.logger.exception(f"Failed black level correction: {e}")
+
+    def demosaicImage(self, raw_image: np.ndarray, colour: bool = False, bit: int = 8) -> np.ndarray:
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
         raw_image = np.clip(raw_image, 0, 1023)
@@ -560,48 +561,33 @@ class Camera(CameraTemplate, ABC):
             image = norm_image
         return image
 
-    @staticmethod
-    def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any,Any], np.ndarray], colour: bool = False, bit: int = 8,
-                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], Dict[Any,Any], np.ndarray]:
-        # self.logger.debug('Image post processing')
+    def postProcessImages(self, raw_images: Union[List[np.ndarray], np.ndarray], colour: bool = False, bit: int = 8,
+                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], np.ndarray]:
+        self.logger.debug('Image post processing')
         try:
             # i = 0
-            img_list: list = []
+            images = list()
             if isinstance(raw_images, list):
                 for raw_image in raw_images:
                     # i += 1
                     if blacklevelcorrection:
-                        raw_image = Camera.blacklevelcorrection(image=raw_image, correction_type="mean")
+                        raw_image = self.blacklevelcorrection(image=raw_image, correction_type="mean")
 
-                    image = Camera.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
+                    image = self.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
                     # cv2.imwrite(str(i)+".png", image)
-                    img_list.append(image)
-                return img_list
-
-            elif isinstance(raw_images, dict):
-                img_dict: dict = dict()
-                for key in raw_images:
-                    for raw_image in raw_images[key]:
-                        # i += 1
-                        if blacklevelcorrection:
-                            raw_image = Camera.blacklevelcorrection(image=raw_image, correction_type="mean")
-
-                        image = Camera.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
-                        # cv2.imwrite(str(i)+".png", image)
-                        img_list.append(image)
-                    img_dict[key] = img_list
-                return img_dict
+                    images.append(image)
 
             else:
                 if blacklevelcorrection:
-                    raw_images = Camera.blacklevelcorrection(image=raw_images, correction_type="mean")
+                    raw_images = self.blacklevelcorrection(image=raw_images, correction_type="mean")
 
-                return Camera.demosaicImage(raw_image=raw_images, colour=colour, bit=bit)
-        # cv2.imwrite("Test.png", images)
+                images = self.demosaicImage(raw_image=raw_images, colour=colour, bit=bit)
+                # cv2.imwrite("Test.png", images)
 
         except Exception as e:
-            raise
-            # self.logger.exception(f"Failed post processing of raw images {e}")
+            self.logger.exception(f"Failed post processing of raw images {e}")
+
+        return images
 
     def setExposureMicrons(self, microns: int = 0) -> int:
         """
@@ -785,8 +771,8 @@ class Camera(CameraTemplate, ABC):
     def checkfirstPhase(self, images: np.ndarray) -> int:
         ref_image = images[0]
         for i in range(1, len(images)):
-            # print(np.abs(np.mean(ref_image) - np.mean(images[i])))
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 6:
+            print(np.abs(np.mean(ref_image) - np.mean(images[i])))
+            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 5:
                 i += 1
                 firstPhase = i
                 break
@@ -800,63 +786,68 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
+    # cam = Camera(available_devices[-1])
     cam = Camera(available_devices[1])
 
     ##########################################################
     # Code for live view
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=10)
-    cam.setExposureMicrons(15000)
-
-    cam.listFeatures()
-    refImage = cam.getImage()
-    ref_image = cam.postProcessImages(refImage, colour=True, bit=8, blacklevelcorrection=False)
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
-    i = 0
-    while True:
-        cam.logger.debug(f'Iteration: {i}')
-        ImageList: list = []
-        try:
-            img = func_timeout(2, cam.getImage)
-        except:
-            logger.debug('get Image failed')
-            img = cam.getImage()
-        finally:
-            Image = cam.postProcessImages(img, colour=True, bit=8, blacklevelcorrection=False)
-            if np.array_equal(ref_image, Image):
-                print("images are identical")
-                break
-            ref_image = Image
-            Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-            cv2.imshow('test', Image)
-            key = cv2.waitKey(1)
-            if key & 0xFF == ord('q'):
-                cv2.destroyAllWindows()
-                break
-            i += 1
-    del cam
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=10)
+    # cam.setExposureMicrons(15000)
+    #
+    # cam.listFeatures()
+    # refImage = cam.getImage()
+    # ref_image = cam.postProcessImages(refImage, colour=True, bit=8, blacklevelcorrection=True)
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # cv2.imshow('test', ref_image)
+    # i = 0
+    # while True:
+    #     cam.logger.debug(f'Iteration: {i}')
+    #     ImageList: list = []
+    #     try:
+    #         img = func_timeout(2, cam.getImage)
+    #     except:
+    #         logger.debug('get Image failed')
+    #         img = cam.getImage()
+    #     finally:
+    #         Image = cam.postProcessImages(img, colour=True, bit=8, blacklevelcorrection=True)
+    #         if np.array_equal(ref_image, Image):
+    #             print("images are identical")
+    #             break
+    #         ref_image = Image
+    #         Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+    #         cv2.imshow('test', Image)
+    #         key = cv2.waitKey(1)
+    #         if key & 0xFF == ord('q'):
+    #             cv2.destroyAllWindows()
+    #             break
+    #         i += 1
+    # del cam
     #########################################################
 
     #########################################################
     # Code for the image acquisition of x Frames
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=10)
-    # expectedImages = 19
-    # cam.setExposureMicrons(10000)
-    # start = time.time()
-    #
-    # for i in range(0,1):
-    #     cam.prepareRecording(expectedImages)
-    #     Images = cam.record()
-    #
-    # Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
-    # end = time.time()
-    #
-    # print(end-start)
-    # plt.imshow(Images[3])
-    # plt.show()
-    # del cam
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=10)
+    expectedImages = 19
+    cam.setExposureMicrons(10000)
+    # cam.prepareRecording(expectedImages)
+    # rawImages = cam.record()
+    start = time.time()
+
+    for i in range(0,1):
+        cam.prepareRecording(expectedImages)
+        Images = cam.record()
+        print(i)
+        # time.sleep(1)
+
+    Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
+    end = time.time()
+
+    print(end-start)
+    plt.imshow(Images[3])
+    plt.show()
+    del cam
     #########################################################
 
     # ##########################################################
