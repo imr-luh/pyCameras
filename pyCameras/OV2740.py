@@ -26,6 +26,7 @@ from skimage import color
 from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 from typing import List, Tuple, Union, BinaryIO, Dict, Any
+import platform
 
 
 LOGGING_LEVEL = logging.DEBUG
@@ -50,8 +51,8 @@ class Controller(ControllerTemplate):
         """
         self.logger.info("searching camera devices")
 
-        cam_name = "CX3-UVC"
-        v4l2path = "/sys/class/video4linux"
+        cam_name:str = "CX3-UVC"
+        v4l2path:str = "/sys/class/video4linux"
 
         for item in os.listdir(v4l2path):
             pth = os.path.join(v4l2path, item, "name")
@@ -116,7 +117,8 @@ class Camera(CameraTemplate, ABC):
             raise ConnectionError
 
         self.img_data: List[np.ndarray] = []
-        self._expected_images: int  = 0
+        self.requested_images:int = 0
+        self._actual_images: int  = 0
         self.ExposureMicrons: int = 0
         self.TriggerMode: str = ""
         self.buffers: List[object] = []
@@ -127,7 +129,7 @@ class Camera(CameraTemplate, ABC):
         self.streamingMode: bool = False
         self.openDevice()
         self.cameraImages: List[np.ndarray] = []
-        self.measurementMode: bool = True
+        self.measurementMode: bool = False
         self.registerFeatures()
         self.getCapability()
         self.recording_time: float = 0
@@ -159,6 +161,11 @@ class Camera(CameraTemplate, ABC):
         self.registerFeature('Framerate', self.setFramerate)
         self.registerFeature('Capability', self.getCapability)
         self.registerFeature('ImageMode', self.setImageMode)
+        self.registerFeature('MeasurementMode', self.setMeasurementMode)
+
+    def setMeasurementMode(self, mode:bool = False) -> bool:
+        self.measurementMode = mode
+        return mode
 
     def getCapability(self) -> object:
         try:
@@ -271,24 +278,28 @@ class Camera(CameraTemplate, ABC):
 
         return self.TriggerMode
 
-    def prepareRecording(self, num: int = 1) -> None:
+    def prepareRecording(self, requested_images : int = 1) -> None:
+        self.requested_images = requested_images
         if self.streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self.streamingMode = False
         if self.measurementMode:
-            self._expected_images = num * 2 + 2
+            self._actual_images =  self.requested_images * 2 + 2
         else:
-            self._expected_images = num
+            self._actual_images =  self.requested_images
 
         self.buffers = []
-        self.logger.info(f"Prepare recording {self._expected_images} images")
+        self.logger.info(f"Prepare recording {self.requested_images} images")
         try:  # empty buffer, otherwise all frames are identical
 
             req = v4l2.v4l2_requestbuffers()
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
-            req.count = 1  # nr of buffer frames
+            if platform.processor().lower() == "aarch64":
+                req.count = 2  # nr of buffer frames for raspi
+            else:
+                req.count = 1  # nr of buffer frames for normal PC
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
 
             for ind in range(req.count):
@@ -327,7 +338,7 @@ class Camera(CameraTemplate, ABC):
 
     def readBuffers(self) -> List[bytearray]:
         images = list()
-        for index in range(0, self._expected_images):  # capture x frames
+        for index in range(0, self._actual_images):  # capture x frames
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
             mm = self.buffers[self.buf.index]
@@ -343,12 +354,11 @@ class Camera(CameraTemplate, ABC):
 
     def record(self) -> List[np.ndarray]:
         try:
-            self.logger.info(f"Recording {self._expected_images} images")
+            self.logger.info(f"Recording {self.requested_images} images")
             start = time.time()
             byteArrays = self.readBuffers()
             end = time.time()
             self.recording_time = end - start
-            self.measurementMode = True
             self.cameraImages = []
             rawImages = []
             for bytearray in byteArrays:
@@ -356,27 +366,12 @@ class Camera(CameraTemplate, ABC):
                 rawImages.append(np.right_shift(image_array, 6).astype(np.uint16))
 
             if self.measurementMode:
-                checkFFT = True
-                if checkFFT:
-                    startImage = self.checkfirstPhase(rawImages)
-
-                    image_counter = 0
-                    for i in range(startImage, len(rawImages)):
-                        if image_counter % 2 == 0:
-                            self.cameraImages.append(rawImages[i])
-                        image_counter += 1
-                else:
-                    calibration_time = 3.66
-                    measurement_time = 3.472
-                    # if self.recording_time < measurement_time:
-                    if self.recording_time < calibration_time:
-                        for i in range(0, len(byteArrays)):
-                            if i > 1 and i % 2 != 0:
-                                self.cameraImages.append(rawImages[i])
-                    else:
-                        for i in range(0, len(byteArrays)):
-                            if i > 1 and i % 2 == 0:
-                                self.cameraImages.append(rawImages[i])
+                startImage = self.checkfirstPhase(rawImages)
+                image_counter:int  = 0
+                for i in range(startImage, len(rawImages)):
+                    if image_counter % 2 == 0:
+                        self.cameraImages.append(rawImages[i])
+                    image_counter += 1
             else:
                 for i in range(0, len(byteArrays)):
                     self.cameraImages.append(rawImages[i])
@@ -392,9 +387,9 @@ class Camera(CameraTemplate, ABC):
         finally:
             return self.cameraImages
 
-    def getImages(self, num: int = 1) -> List[np.ndarray]:
+    def getImages(self, requested_images: int = 1) -> List[np.ndarray]:
         try:
-            self.prepareRecording(num)
+            self.prepareRecording(requested_images)
             images = self.record()
             self.acquisition_calls += 1
         except Exception as e:
@@ -419,8 +414,8 @@ class Camera(CameraTemplate, ABC):
         req = v4l2.v4l2_requestbuffers()
         req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         req.memory = v4l2.V4L2_MEMORY_MMAP
-        # req.count = 1  # nr of buffer frames
-        req.count = 2  # nr of buffer frames
+        req.count = 1  # nr of buffer frames
+        # req.count = 2  # nr of buffer frames
         try:
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
         except OSError as e:
@@ -534,7 +529,6 @@ class Camera(CameraTemplate, ABC):
 
         except Exception as e:
             raise
-            # self.logger.exception(f"Failed black level correction: {e}")
         return image
 
     @staticmethod
@@ -564,7 +558,6 @@ class Camera(CameraTemplate, ABC):
     @staticmethod
     def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any,Any], np.ndarray], colour: bool = False, bit: int = 8,
                           blacklevelcorrection: bool = False) -> Union[List[np.ndarray], Dict[Any,Any], np.ndarray]:
-        # self.logger.debug('Image post processing')
         try:
             # i = 0
             img_list: list = []
@@ -602,7 +595,6 @@ class Camera(CameraTemplate, ABC):
 
         except Exception as e:
             raise
-            # self.logger.exception(f"Failed post processing of raw images {e}")
 
     def setExposureMicrons(self, microns: int = 0) -> int:
         """
@@ -799,65 +791,72 @@ class Camera(CameraTemplate, ABC):
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
+    # IS_Raspi = platform.linux_distribution()[0].lower() == 'debian'
+    platform.processor().lower == 'x'
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
     cam = Camera(available_devices[1])
 
     ##########################################################
     # Code for live view
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=10)
-    cam.setExposureMicrons(15000)
-
-    cam.listFeatures()
-    refImage = cam.getImage()
-    ref_image = cam.postProcessImages(refImage, colour=True, bit=8, blacklevelcorrection=False)
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
-    i = 0
-    while True:
-        cam.logger.debug(f'Iteration: {i}')
-        ImageList: list = []
-        try:
-            img = func_timeout(2, cam.getImage)
-        except:
-            logger.debug('get Image failed')
-            img = cam.getImage()
-        finally:
-            Image = cam.postProcessImages(img, colour=True, bit=8, blacklevelcorrection=False)
-            if np.array_equal(ref_image, Image):
-                print("images are identical")
-                break
-            ref_image = Image
-            Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-            cv2.imshow('test', Image)
-            key = cv2.waitKey(1)
-            if key & 0xFF == ord('q'):
-                cv2.destroyAllWindows()
-                break
-            i += 1
-    del cam
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=10)
+    # cam.setExposureMicrons(15000)
+    #
+    # cam.listFeatures()
+    # refImage = cam.getImage()
+    # ref_image = cam.postProcessImages(refImage, colour=True, bit=8, blacklevelcorrection=False)
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # cv2.imshow('test', ref_image)
+    # i = 0
+    # while True:
+    #     cam.logger.debug(f'Iteration: {i}')
+    #     ImageList: list = []
+    #     try:
+    #         img = func_timeout(2, cam.getImage)
+    #     except:
+    #         logger.debug('get Image failed')
+    #         img = cam.getImage()
+    #     finally:
+    #         Image = cam.postProcessImages(img, colour=True, bit=8, blacklevelcorrection=False)
+    #         if np.array_equal(ref_image, Image):
+    #             print("images are identical")
+    #             break
+    #         ref_image = Image
+    #         Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+    #         cv2.imshow('test', Image)
+    #         key = cv2.waitKey(1)
+    #         if key & 0xFF == ord('q'):
+    #             cv2.destroyAllWindows()
+    #             break
+    #         i += 1
+    # del cam
     #########################################################
 
     #########################################################
     # Code for the image acquisition of x Frames
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=10)
-    # expectedImages = 19
-    # cam.setExposureMicrons(10000)
-    # start = time.time()
-    #
-    # for i in range(0,1):
-    #     cam.prepareRecording(expectedImages)
-    #     Images = cam.record()
-    #
-    # Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
-    # end = time.time()
-    #
-    # print(end-start)
-    # plt.imshow(Images[3])
-    # plt.show()
-    # del cam
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=10)
+    expectedImages = 16
+    cam.setExposureMicrons(20000)
+    start = time.time()
+
+    cam.prepareRecording(expectedImages)
+    Images = cam.record()
+
+    Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
+    print(len(Images))
+    end = time.time()
+
+    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    for image in Images:
+        Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        cv2.imshow('test', Image)
+        key = cv2.waitKey(0)
+        if key & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+
+    del cam
     #########################################################
 
     # ##########################################################
