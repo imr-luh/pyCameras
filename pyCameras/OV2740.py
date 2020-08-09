@@ -6,7 +6,6 @@ __status__ = "Development"
 
 # check this repository for implementation https://github.com/AlexJinlei/python-v4l2
 import logging
-import signal
 from abc import ABC
 import numpy as np
 import v4l2
@@ -19,9 +18,6 @@ import matplotlib.pyplot as plt
 import os
 import time
 import colour_demosaicing
-from threading import Event
-import sys
-import copy
 from skimage import color
 from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
@@ -30,6 +26,7 @@ import platform
 
 
 LOGGING_LEVEL = logging.DEBUG
+
 
 class Controller(ControllerTemplate):
     """ Camera Controller for the OV2740 camera."""
@@ -51,19 +48,23 @@ class Controller(ControllerTemplate):
         """
         self.logger.info("searching camera devices")
 
-        cam_name:str = "CX3-UVC"
-        v4l2path:str = "/sys/class/video4linux"
+        cam_name: str = "CX3-UVC"
+        v4l2path: str = "/sys/class/video4linux"
 
-        for item in os.listdir(v4l2path):
-            pth = os.path.join(v4l2path, item, "name")
-            if os.path.exists(pth):
-                with open(pth, "r") as f:
-                    device_name = f.read()
-                    if cam_name in device_name:
-                        device_input = str(item)
-                        self.device_handles.append(device_input)
+        try:
+            for item in os.listdir(v4l2path):
+                pth = os.path.join(v4l2path, item, "name")
+                if os.path.exists(pth):
+                    with open(pth, "r") as f:
+                        device_name = f.read()
+                        if cam_name in device_name:
+                            device_input = str(item)
+                            self.device_handles.append(device_input)
+            return 1
 
-        return 1
+        except Exception as e:
+            self.logger.info(f"failed updating device handle {e}")
+            raise
 
     def getDevice(self, device_handle: object) -> object:
         """
@@ -116,25 +117,20 @@ class Camera(CameraTemplate, ABC):
         if self.device_handle is None:
             raise ConnectionError
 
-        self.img_data: List[np.ndarray] = []
-        self.requested_images:int = 0
-        self._actual_images: int  = 0
+        self._actual_images: int = 0
         self.ExposureMicrons: int = 0
         self.TriggerMode: str = ""
         self.buffers: List[object] = []
         self.buf: v4l2.v4l2_buffer = v4l2.v4l2_buffer()
         self.buf_type: int = 0
-        self.acquisition_calls: int = 0
-        self.imageMode: str = ""
-        self.streamingMode: bool = False
+        self._streamingMode: bool = False
         self.openDevice()
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
         self.registerFeatures()
         self.getCapability()
-        self.recording_time: float = 0
         self.ImageWidth: int = 0
-        self.ImageHeight: int  = 0
+        self.ImageHeight: int = 0
 
     @staticmethod
     def listDevices() -> list:
@@ -160,33 +156,42 @@ class Camera(CameraTemplate, ABC):
         self.registerFeature('Trigger', self.setTriggerMode)
         self.registerFeature('Framerate', self.setFramerate)
         self.registerFeature('Capability', self.getCapability)
-        self.registerFeature('ImageMode', self.setImageMode)
         self.registerFeature('MeasurementMode', self.setMeasurementMode)
 
-    def setMeasurementMode(self, mode:bool = False) -> bool:
+    def listFeatures(self) -> None:
+        """
+        Lists camera features
+        """
+        try:
+            self.logger.debug('Listing camera features')
+            for feature in self.features:
+                print("-------------------")
+                print(f"Feature name: {feature}")
+        except Exception as e:
+            self.logger.exception(f'Failed to get feature names: {e}')
+
+    def setMeasurementMode(self, mode: bool = False) -> bool:
         self.measurementMode = mode
         return mode
 
-    def getCapability(self) -> object:
+    def getCapability(self) -> v4l2.v4l2_capability:
         try:
             cp = v4l2.v4l2_capability()
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYCAP), cp)
 
         except Exception as e:
             self.logger.exception(f"Failed to get sensor capability: {e}")
+            raise
 
         return cp
 
-    def setResolution(self, resolution: Tuple[int, int] = (1928, 1088)) -> Tuple[int,int]:
+    def setResolution(self, resolution: Tuple[int, int] = (1928, 1088)) -> Tuple[int, int]:
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
         self.ImageWidth = fmt.fmt.pix.width
         self.ImageHeight = fmt.fmt.pix.height
         return self.ImageWidth, self.ImageHeight
-
-    def setImageMode(self, Mode: str = 'Raw') -> None:
-        self.imageMode = Mode
 
     def getExposureInfo(self) -> Tuple[v4l2.v4l2_queryctrl, v4l2.v4l2_control]:
         try:
@@ -206,6 +211,7 @@ class Camera(CameraTemplate, ABC):
 
         except Exception as e:
             self.logger.exception(f"Failed to get ExposureInfo: {e}")
+            raise
 
         return qc, gc
 
@@ -220,8 +226,9 @@ class Camera(CameraTemplate, ABC):
             self.logger.debug(f'Opened camera device: {self.device.name}')
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
+            raise
 
-    def getFormat(self) -> str:
+    def getFormat(self) -> v4l2.v4l2_format:
         """
         read the current format
 
@@ -237,6 +244,7 @@ class Camera(CameraTemplate, ABC):
 
         except Exception as e:
             self.logger.exception(e)
+            raise
 
         return fmt
 
@@ -251,20 +259,16 @@ class Camera(CameraTemplate, ABC):
 
             except Exception as e:
                 self.logger.exception(f"Failed to close the camera device: {e}")
+                raise
         else:
             self.logger.info('No Device present.')
 
-    def setTriggerMode(self, mode: str = None) -> str:
+    def setTriggerMode(self, mode: str = "") -> str:
         """
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None
-
         """
-        if mode is None:
-            # self.TriggerMode = mode
-            return self.TriggerMode
-
-        elif mode.lower() == 'in':
+        if mode.lower() == 'in':
             self.TriggerMode = mode
             self.logger.warning(f"Trigger mode not implemented: {mode}")
 
@@ -276,21 +280,22 @@ class Camera(CameraTemplate, ABC):
             self.TriggerMode = mode
             self.logger.warning(f"Trigger mode not implemented: {mode}")
 
+        else:
+            self.logger.warning(f"Trigger mode is unknown: {mode}")
         return self.TriggerMode
 
-    def prepareRecording(self, requested_images : int = 1) -> None:
-        self.requested_images = requested_images
-        if self.streamingMode:
+    def prepareRecording(self, requested_images: int = 1) -> None:
+        if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
+            self._streamingMode = False
         if self.measurementMode:
-            self._actual_images =  self.requested_images * 2 + 2
+            self._actual_images = requested_images * 2 + 2
         else:
-            self._actual_images =  self.requested_images
+            self._actual_images = requested_images
 
-        self.buffers = []
-        self.logger.info(f"Prepare recording {self.requested_images} images")
+        self.buffers.clear()
+        self.logger.info(f"Prepare recording {requested_images} images")
         try:  # empty buffer, otherwise all frames are identical
 
             req = v4l2.v4l2_requestbuffers()
@@ -318,8 +323,8 @@ class Camera(CameraTemplate, ABC):
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMON), self.buf_type)
-            self.streamingMode = True
-
+            self._streamingMode = True
+            self.cameraImages.clear()
             t0 = time.time()
             max_t = 1
             ready_to_read: list = []
@@ -336,8 +341,34 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f"Failed to prepare recording: {e}")
 
-    def readBuffers(self) -> List[bytearray]:
-        images = list()
+    def record(self) -> List[np.ndarray]:
+        self.logger.info("Recording images")
+        try:
+            raw_images = self.readBuffers()
+
+            if self.measurementMode:
+                start_image = Camera.checkFirstPhase(images=raw_images)
+                image_counter: int = 0
+                for i in range(start_image, len(raw_images)):
+                    if image_counter % 2 == 0:
+                        self.cameraImages.append(raw_images[i])
+                    image_counter += 1
+            else:
+                for i in range(0, len(raw_images)):
+                    self.cameraImages.append(raw_images[i])
+
+            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
+            self._streamingMode = False
+
+            return self.cameraImages
+
+        except Exception as e:
+            self.logger.exception(f"Failed record images: {e}")
+            raise
+
+    def readBuffers(self) -> List[np.ndarray]:
+        byte_arrays: List[bytearray] = []
+        start_time = time.time()
         for index in range(0, self._actual_images):  # capture x frames
 
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
@@ -348,52 +379,26 @@ class Camera(CameraTemplate, ABC):
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
             image_byte_array = bytearray(image_bytestream)
-            images.append(image_byte_array)
+            byte_arrays.append(image_byte_array)
             index += 1
-        return images
 
-    def record(self) -> List[np.ndarray]:
-        try:
-            self.logger.info(f"Recording {self.requested_images} images")
-            start = time.time()
-            byteArrays = self.readBuffers()
-            end = time.time()
-            self.recording_time = end - start
-            self.cameraImages = []
-            rawImages = []
-            for bytearray in byteArrays:
-                image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=bytearray).astype(np.uint16)
-                rawImages.append(np.right_shift(image_array, 6).astype(np.uint16))
+        end_time = time.time()
+        recording_time = start_time - end_time
+        self.logger.info(f"capturing took: {recording_time}")
+        raw_images: List = []
+        for byte_array in byte_arrays:
+            image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byte_array).astype(np.uint16)
+            raw_images.append(np.right_shift(image_array, 6).astype(np.uint16))
 
-            if self.measurementMode:
-                startImage = self.checkfirstPhase(rawImages)
-                image_counter:int  = 0
-                for i in range(startImage, len(rawImages)):
-                    if image_counter % 2 == 0:
-                        self.cameraImages.append(rawImages[i])
-                    image_counter += 1
-            else:
-                for i in range(0, len(byteArrays)):
-                    self.cameraImages.append(rawImages[i])
-
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
-
-            self.logger.info(f"capturing took: {self.recording_time}")
-
-        except Exception as e:
-            self.logger.exception(f"Failed record images: {e}")
-
-        finally:
-            return self.cameraImages
+        return raw_images
 
     def getImages(self, requested_images: int = 1) -> List[np.ndarray]:
         try:
             self.prepareRecording(requested_images)
             images = self.record()
-            self.acquisition_calls += 1
         except Exception as e:
             self.logger.exception(f"Failed getImages: {e}")
+            raise
         return images
 
     def getImage(self) -> np.ndarray:
@@ -403,19 +408,17 @@ class Camera(CameraTemplate, ABC):
         :return: image : np.ndarray
             Image of camera device
         """
-        if self.streamingMode:
+        if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
+            self._streamingMode = False
 
-        rawImage: list = []
-        self.buffers = []
+        self.buffers.clear()
         self.logger.debug("get single frame.")
         req = v4l2.v4l2_requestbuffers()
         req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         req.memory = v4l2.V4L2_MEMORY_MMAP
         req.count = 1  # nr of buffer frames
-        # req.count = 2  # nr of buffer frames
         try:
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
         except OSError as e:
@@ -430,8 +433,7 @@ class Camera(CameraTemplate, ABC):
             self.buf.index = ind
 
             try:
-                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF),
-                            self.buf)  # tell the driver that we want some buffers
+                fcntl.ioctl(self.device, int(v4l2.VIDIOC_QUERYBUF), self.buf)  # tell the driver that we want some buffers
             except OSError as e:
                 if e.errno == errno.EBUSY:
                     continue
@@ -460,7 +462,7 @@ class Camera(CameraTemplate, ABC):
                 else:
                     raise
 
-        self.streamingMode = True
+        self._streamingMode = True
 
         t0 = time.time()
         max_t = 1
@@ -494,70 +496,99 @@ class Camera(CameraTemplate, ABC):
         except OSError as e:
             if not e.errno == errno.EBUSY:
                 raise
-        self.streamingMode = False
+        self._streamingMode = False
 
-        byteArray = bytearray(image_bytestream)
+        byte_array = bytearray(image_bytestream)
 
-        image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byteArray).astype(np.uint16)
+        image_array = np.ndarray(shape=(1088, 1928), dtype='>u2', buffer=byte_array).astype(np.uint16)
         image_array = np.right_shift(image_array, 6).astype(np.uint16)
         return image_array
 
     @staticmethod
-    def blacklevelcorrection(image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
+    def blacklevelcorrection(uncorrected_image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
         try:
-            image = image
             cwd = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/'
             path = os.path.join(cwd + '/images/black_level_mean.npy')
             if os.path.exists(path):
+                ref_image = np.load(path)
                 if correction_type == "pixelwise":
-                    blacklevel_image = np.load(path)
+                    black_level_image = ref_image
                 elif correction_type == "mean":
-                    ref_image = np.load(path)
                     mean = np.mean(ref_image)
-                    blacklevel_image = np.ones_like(ref_image) * mean
-
-                saturation_image = np.ones_like(image) * 1023
-                if (image > 1000).sum() < 10000:
-                    corrected_image = np.subtract(image, blacklevel_image).astype(np.int16)
+                    black_level_image = np.ones_like(ref_image) * mean
                 else:
-                    corrected_image = np.where(np.subtract(image, blacklevel_image).astype(np.int16) < 0,
-                                               np.subtract(saturation_image, blacklevel_image).astype(np.int16),
-                                               np.subtract(image, blacklevel_image).astype(np.int16))
-                blacklevel_factor = 1023 / (np.subtract(saturation_image, blacklevel_image))
+                    black_level_image = ref_image
+
+                saturation_image = np.ones_like(uncorrected_image) * 1023
+                if (uncorrected_image > 1000).sum() < 10000:
+                    corrected_image = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
+                else:
+                    corrected_image = np.where(np.subtract(uncorrected_image, black_level_image).astype(np.int16) < 0,
+                                               np.subtract(saturation_image, black_level_image).astype(np.int16),
+                                               np.subtract(uncorrected_image, black_level_image).astype(np.int16))
+                blacklevel_factor = 1023 / (np.subtract(saturation_image, black_level_image))
                 image = np.multiply(corrected_image.copy(), blacklevel_factor)
-                image = np.clip(image, 0, 1023)
+                return np.clip(image, 0, 1023)
+
+            else:
+                print(f"path of black images not found")
+                return uncorrected_image
 
         except Exception as e:
+            print(f"failed back level correction  {e}")
             raise
-        return image
 
     @staticmethod
-    def demosaicImage(raw_image: np.ndarray, colour: bool = False, bit: int = 8) -> np.ndarray:
+    def demosaicImage(raw_image: np.ndarray, gray: bool = True, bit: int = 8, algorithm: str = "interpolation") -> np.ndarray:
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
         raw_image = np.clip(raw_image, 0, 1023)
 
-        demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+        if Camera.getCudaSupport():
+            # Bayer Demosaicing (Malvar, He, and Cutler)
+            demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB_MHT, dstCn=1)
+            # demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+        else:
+            if algorithm.lower() == "ddfapd":
+                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+
+            # Demosaicing using bilinear interpolation
+            elif algorithm.lower == "interpolation":
+                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR, dstCn=1)
+
+            # Demosaicing using variable Number of Gradients
+            elif algorithm.lower() == "gradients":
+                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_VNG, dstCn=1)
+
+            # Demosaicing using Edge-Aware Demosaicing
+            elif algorithm.lower() == "edge":
+                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_EA, dstCn=1)
+
+            else:
+                demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
+
         demosaic_img = np.clip(demosaic_img, 0, 1023)
 
         norm_image = demosaic_img.copy() / 1023
 
-        if not colour:
-            norm_image = color.rgb2gray(norm_image)
+        if gray:
+            if algorithm.lower() == "ddfapd":
+                norm_image = color.rgb2gray(norm_image)
+            else:
+                norm_image = color.rgb2gray(norm_image)
 
         if bit == 8:
             image = norm_image.copy() * 255
-            image = image.astype(np.uint8)
+            return image.astype(np.uint8)
         elif bit == 10:
             image = norm_image.copy() * 1023
-            image = image.astype(np.uint16)
+            return image.astype(np.uint16)
         else:
-            image = norm_image
-        return image
+            return norm_image
 
     @staticmethod
-    def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any,Any], np.ndarray], colour: bool = False, bit: int = 8,
-                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], Dict[Any,Any], np.ndarray]:
+    def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray], gray: bool = False, bit: int = 8,
+                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
             # i = 0
             img_list: list = []
@@ -565,35 +596,33 @@ class Camera(CameraTemplate, ABC):
                 for raw_image in raw_images:
                     # i += 1
                     if blacklevelcorrection:
-                        raw_image = Camera.blacklevelcorrection(image=raw_image, correction_type="mean")
+                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
 
-                    image = Camera.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
+                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm="ddfapd")
                     # cv2.imwrite(str(i)+".png", image)
                     img_list.append(image)
                 return img_list
 
             elif isinstance(raw_images, dict):
                 img_dict: dict = dict()
-                for key in raw_images:
-                    for raw_image in raw_images[key]:
-                        # i += 1
-                        if blacklevelcorrection:
-                            raw_image = Camera.blacklevelcorrection(image=raw_image, correction_type="mean")
-
-                        image = Camera.demosaicImage(raw_image=raw_image, colour=colour, bit=bit)
-                        # cv2.imwrite(str(i)+".png", image)
-                        img_list.append(image)
-                    img_dict[key] = img_list
+                for k, v in raw_images.items():
+                    raw_image = raw_images[k][v]
+                    if blacklevelcorrection:
+                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
+                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm="ddfapd")
+                    # cv2.imwrite(str(i)+".png", image)
+                    img_dict[k][v] = image
                 return img_dict
 
             else:
                 if blacklevelcorrection:
-                    raw_images = Camera.blacklevelcorrection(image=raw_images, correction_type="mean")
+                    raw_images = Camera.blacklevelcorrection(uncorrected_image=raw_images, correction_type="mean")
 
-                return Camera.demosaicImage(raw_image=raw_images, colour=colour, bit=bit)
+                return Camera.demosaicImage(raw_image=raw_images, gray=gray, bit=bit, algorithm="ddfapd")
         # cv2.imwrite("Test.png", images)
 
         except Exception as e:
+            print(f"function call prost processing failed {e}")
             raise
 
     def setExposureMicrons(self, microns: int = 0) -> int:
@@ -612,10 +641,10 @@ class Camera(CameraTemplate, ABC):
         microns : int
             The exposure time in microseconds after applying the passed value
         """
-        if self.streamingMode:
+        if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
+            self._streamingMode = False
 
         if microns != 0:
             try:
@@ -651,10 +680,10 @@ class Camera(CameraTemplate, ABC):
             return self.ExposureMicrons
 
     def setFramerate(self, framerate: int = 10):
-        if self.streamingMode:
+        if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
+            self._streamingMode = False
 
         try:
             parm = v4l2.v4l2_streamparm()
@@ -678,16 +707,12 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception(f"Failed to set frame rate {framerate} fps: {e}")
 
     def prepare_live(self, exposure: int):
-        if self.streamingMode:
+        if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
-            self.streamingMode = False
-        self.setLive(True)
+            self._streamingMode = False
         self.setExposureMicrons(microns=exposure)
         self.logger.info(f"Live View Exposure time : {exposure}µs")
-
-    def setLive(self, Mode: bool = False):
-        self.liveStream = Mode
 
     def __del__(self) -> None:
         """
@@ -699,100 +724,99 @@ class Camera(CameraTemplate, ABC):
         if not self.device:
             del self.device
 
-    def analyseBlackLevel(self, raw_images: np.ndarray, channel: str = "", display: bool = False) -> Tuple[int, int]:
-        if isinstance(raw_images, list):
-            index = 0
-            for image in raw_images:
-                image_list = list()
-                channel = channel.lower()
-                if channel == "b":
-                    rawImage = image[0::2, 0::2]
-                elif channel == "g1":
-                    rawImage = image[0::2, 1::2]
-                elif channel == "g2":
-                    rawImage = image[1::2, 0::2]
-                elif channel == "r":
-                    rawImage = image[1::2, 1::2]
-                elif channel == "all":
-                    rawImage = image
-                else:
-                    print("idiot")
+    @staticmethod
+    def analyseBlackLevel(raw_images: List[np.ndarray], channel: str = "", display: bool = False) -> Tuple[np.ndarray, int]:
+        channel_list: list = []
+        for raw_image in raw_images:
+            channel = channel.lower()
+            if channel == "b":
+                channel_image = raw_image[0::2, 0::2]
+            elif channel == "g1":
+                channel_image = raw_image[0::2, 1::2]
+            elif channel == "g2":
+                channel_image = raw_image[1::2, 0::2]
+            elif channel == "r":
+                channel_image = raw_image[1::2, 1::2]
+            else:
+                channel_image = raw_image
 
-                print("rawImage max:", np.max(rawImage), "min:", np.min(rawImage), "devi:",
-                      np.std(rawImage), "mean:", np.mean(rawImage))
-                image_list.append(rawImage)
-                index += 1
+            print("rawImage max:", np.max(channel_image), "min:", np.min(channel_image), "devi:",
+                  np.std(channel_image), "mean:", np.mean(channel_image))
+            channel_list.append(channel_image)
 
-            mean = np.mean(image_list, axis=0).astype(np.uint16)
-            if display:
-                hist = cv2.calcHist([mean], [0], None, [int(np.max(mean))], [0, int(np.max(mean) + 1)])
-                plt.plot(hist)
-                plt.ylim([0, 10])
-                plt.title("Histogram")
-                plt.show()
+        mean = np.mean(channel_list, axis=0, dtype=np.uint16)
+        if display:
+            hist = cv2.calcHist([mean], [0], None, [int(np.max(mean))], [0, int(np.max(mean) + 1)])
+            plt.plot(hist)
+            plt.ylim([0, 10])
+            plt.title("Histogram")
+            plt.show()
 
-            thresh_values = "soft"
-            if thresh_values == "hard":
-                thresh = [62, 70]
-            elif thresh_values == "soft":
-                thresh = [58, 72]
+        thresh_values = "soft"
+        if thresh_values == "hard":
+            thresh = [62, 70]
+        elif thresh_values == "soft":
+            thresh = [58, 72]
+        else:
+            thresh = [80, 80]
 
-            new_mean = np.where(mean <= thresh[0], 0, mean)
-            new_mean = np.where(new_mean >= thresh[1], 0, new_mean)
+        new_mean = np.where(mean <= thresh[0], 0, mean)
+        new_mean = np.where(new_mean >= thresh[1], 0, new_mean)
 
-            dead_pixels = (new_mean < 10).sum()
-            self.logger.debug(f"Found {dead_pixels} dead pixels")
+        dead_pixels: int = (new_mean < 10).sum()
+        print(f"Found {dead_pixels} dead pixels")
 
-            if display:
-                plt.imshow(new_mean.astype(np.uint16), cmap='gray', vmin=0, vmax=1023)
-                plt.colorbar()
-                plt.show()
+        if display:
+            plt.imshow(new_mean.astype(np.uint16), cmap='gray', vmin=0, vmax=1023)
+            plt.colorbar()
+            plt.show()
 
-                hist_new = cv2.calcHist([new_mean], [0], None, [int(np.max(new_mean))], [0, int(np.max(new_mean) + 1)])
-                plt.plot(hist_new)
-                plt.ylim([0, 10])
-                plt.title("Clipped Histogram")
-                plt.show()
+            hist_new = cv2.calcHist([new_mean], [0], None, [int(np.max(new_mean))], [0, int(np.max(new_mean) + 1)])
+            plt.plot(hist_new)
+            plt.ylim([0, 10])
+            plt.title("Clipped Histogram")
+            plt.show()
 
-                print("mean of mean: ", np.mean(new_mean))
-                print("std of mean: ", np.std(new_mean))
+            print("mean of mean: ", np.mean(new_mean))
+            print("std of mean: ", np.std(new_mean))
 
-            cwd = os.getcwd()
-            path = os.path.join(cwd + '/images/black_level_mean.npy')
-            np.save(path, new_mean)
+        cwd = os.getcwd()
+        path = os.path.join(cwd + '/images/black_level_mean.npy')
+        np.save(path, new_mean)
 
         return new_mean, dead_pixels
 
-    def listFeatures(self) -> None:
-        """
-        Lists camera features
-        """
-        try:
-            self.logger.debug('Listing camera features')
-            for feature in self.features:
-                print("-------------------")
-                print(f"Feature name: {feature}")
-        except Exception as e:
-            self.logger.exception(f'Failed to get feature names: {e}')
-
-    def checkfirstPhase(self, images: np.ndarray) -> int:
+    @staticmethod
+    def checkFirstPhase(images: List[np.ndarray]) -> int:
         ref_image = images[0]
+        first_phase: int = 2
         for i in range(1, len(images)):
             # print(np.abs(np.mean(ref_image) - np.mean(images[i])))
             if np.abs(np.mean(ref_image) - np.mean(images[i])) > 6:
                 i += 1
-                firstPhase = i
+                first_phase = i
                 break
-            else:
-                firstPhase = 2
 
-        return firstPhase
+        return first_phase
+
+    @staticmethod
+    def getCudaSupport() -> bool:
+        try:
+            count = cv2.cuda.getCudaEnabledDeviceCount()
+            if count > 0:
+                cuda_support = True
+            else:
+                cuda_support = False
+        except Exception as e:
+            print(f"Function call getCudeEnabledDeviceCount failed {e}")
+            raise
+        return cuda_support
 
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
-    # IS_Raspi = platform.linux_distribution()[0].lower() == 'debian'
-    platform.processor().lower == 'x'
+    cuda_support = Camera.getCudaSupport()
+    print(cuda_support)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
     cam = Camera(available_devices[1])
@@ -844,7 +868,7 @@ if __name__ == '__main__':
     cam.prepareRecording(expectedImages)
     Images = cam.record()
 
-    Images = cam.postProcessImages(Images, colour=True, bit=8, blacklevelcorrection=False)
+    Images = cam.postProcessImages(Images, gray=True, bit=8, blacklevelcorrection=False)
     print(len(Images))
     end = time.time()
 

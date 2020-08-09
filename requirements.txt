@@ -9,3 +9,5 @@ v4l2
 scikit-image
 colour_demosaicing
 matplotlib
+func_timeout
+mypy
