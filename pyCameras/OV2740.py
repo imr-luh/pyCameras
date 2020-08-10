@@ -383,7 +383,7 @@ class Camera(CameraTemplate, ABC):
             index += 1
 
         end_time = time.time()
-        recording_time = start_time - end_time
+        recording_time = end_time - start_time
         self.logger.info(f"capturing took: {recording_time}")
         raw_images: List = []
         for byte_array in byte_arrays:
@@ -539,15 +539,19 @@ class Camera(CameraTemplate, ABC):
             raise
 
     @staticmethod
-    def demosaicImage(raw_image: np.ndarray, gray: bool = True, bit: int = 8, algorithm: str = "interpolation") -> np.ndarray:
+    def demosaicImage(raw_image: np.ndarray, gray: bool = True, bit: int = 8, algorithm: str = "interpolation", measurement: bool = False) -> np.ndarray:
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
         raw_image = np.clip(raw_image, 0, 1023)
 
-        if Camera.getCudaSupport():
-            # Bayer Demosaicing (Malvar, He, and Cutler)
-            demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB_MHT, dstCn=1)
-            # demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+        if measurement:
+            demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY)
+
+            if Camera.getCudaSupport():
+                # Bayer Demosaicing (Malvar, He, and Cutler)
+                demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB_MHT, dstCn=1)
+                # demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+
         else:
             if algorithm.lower() == "ddfapd":
                 demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
@@ -571,11 +575,13 @@ class Camera(CameraTemplate, ABC):
 
         norm_image = demosaic_img.copy() / 1023
 
-        if gray:
+        if len(norm_image.shape) == 3:
             if algorithm.lower() == "ddfapd":
-                norm_image = color.rgb2gray(norm_image)
+                norm_image = cv2.cvtColor(src=norm_image, dst=norm_image, dstCn=cv2.COLOR_RGB2GRAY)
+                # norm_image = color.rgb2gray(norm_image)
             else:
-                norm_image = color.rgb2gray(norm_image)
+                norm_image = cv2.cvtColor(src=norm_image, code=cv2.COLOR_BGR2GRAY)
+                # norm_image = color.bgr2gray(norm_image)
 
         if bit == 8:
             image = norm_image.copy() * 255
@@ -587,8 +593,9 @@ class Camera(CameraTemplate, ABC):
             return norm_image
 
     @staticmethod
-    def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray], gray: bool = False, bit: int = 8,
-                          blacklevelcorrection: bool = False) -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
+    def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray], gray: bool = False,
+                          bit: int = 8, blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
+                          measurement: bool = False) -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
             # i = 0
             img_list: list = []
@@ -598,7 +605,7 @@ class Camera(CameraTemplate, ABC):
                     if blacklevelcorrection:
                         raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
 
-                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm="ddfapd")
+                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
                     # cv2.imwrite(str(i)+".png", image)
                     img_list.append(image)
                 return img_list
@@ -609,7 +616,7 @@ class Camera(CameraTemplate, ABC):
                     raw_image = raw_images[k][v]
                     if blacklevelcorrection:
                         raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
-                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm="ddfapd")
+                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
                     # cv2.imwrite(str(i)+".png", image)
                     img_dict[k][v] = image
                 return img_dict
@@ -618,7 +625,7 @@ class Camera(CameraTemplate, ABC):
                 if blacklevelcorrection:
                     raw_images = Camera.blacklevelcorrection(uncorrected_image=raw_images, correction_type="mean")
 
-                return Camera.demosaicImage(raw_image=raw_images, gray=gray, bit=bit, algorithm="ddfapd")
+                return Camera.demosaicImage(raw_image=raw_images, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
         # cv2.imwrite("Test.png", images)
 
         except Exception as e:
@@ -815,8 +822,8 @@ class Camera(CameraTemplate, ABC):
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
-    cuda_support = Camera.getCudaSupport()
-    print(cuda_support)
+    # cuda_support = Camera.getCudaSupport()
+    # print(cuda_support)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
     cam = Camera(available_devices[1])
@@ -865,20 +872,21 @@ if __name__ == '__main__':
     cam.setExposureMicrons(20000)
     start = time.time()
 
-    cam.prepareRecording(expectedImages)
-    Images = cam.record()
+    while True:
+        cam.prepareRecording(expectedImages)
+        Images = cam.record()
+        Images = cam.postProcessImages(Images, gray=True, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
+        print(len(Images))
+        end = time.time()
 
-    Images = cam.postProcessImages(Images, gray=True, bit=8, blacklevelcorrection=False)
-    print(len(Images))
-    end = time.time()
-
-    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    for image in Images:
-        Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        cv2.imshow('test', Image)
-        key = cv2.waitKey(0)
-        if key & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
+        cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+        for image in Images:
+            # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            cv2.imshow('test', image)
+            key = cv2.waitKey(1)
+            if key & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                raise StopIteration
 
     del cam
     #########################################################
