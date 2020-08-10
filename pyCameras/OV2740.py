@@ -268,21 +268,29 @@ class Camera(CameraTemplate, ABC):
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None
         """
-        if mode.lower() == 'in':
-            self.TriggerMode = mode
-            self.logger.warning(f"Trigger mode not implemented: {mode}")
+        if not mode:
+            self.logger.debug(f"Get Trigger mode request returned: {self.TriggerMode}")
+            return self.TriggerMode
+
+        elif mode.lower() == 'in':
+            self.TriggerMode = mode.lower()
+            self.logger.debug(f"Trigger mode not implemented: {mode}")
+            return self.TriggerMode
 
         elif mode.lower() == 'out':
-            self.logger.info("Camera Out Trigger on")
-            self.TriggerMode = mode
+            self.logger.debug("Camera Out Trigger on")
+            self.TriggerMode = mode.lower()
+            return self.TriggerMode
 
         elif mode.lower() == 'off':
-            self.TriggerMode = mode
-            self.logger.warning(f"Trigger mode not implemented: {mode}")
+            self.TriggerMode = mode.lower()
+            self.logger.debug(f"Trigger mode not implemented: {mode}")
+            return self.TriggerMode
 
         else:
             self.logger.warning(f"Trigger mode is unknown: {mode}")
-        return self.TriggerMode
+            raise
+
 
     def prepareRecording(self, requested_images: int = 1) -> None:
         if self._streamingMode:
@@ -545,12 +553,12 @@ class Camera(CameraTemplate, ABC):
         raw_image = np.clip(raw_image, 0, 1023)
 
         if measurement:
+            # Demosaicing using bilinear interpolation
             demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY)
 
             if Camera.getCudaSupport():
                 # Bayer Demosaicing (Malvar, He, and Cutler)
-                demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB_MHT, dstCn=1)
-                # demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+                demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
 
         else:
             if algorithm.lower() == "ddfapd":
@@ -613,18 +621,18 @@ class Camera(CameraTemplate, ABC):
             elif isinstance(raw_images, dict):
                 img_dict: dict = dict()
                 for k, v in raw_images.items():
-                    raw_image = raw_images[k][v]
-                    if blacklevelcorrection:
-                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
-                    image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
+                    for raw_image in v:
+                        if blacklevelcorrection:
+                            raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
+                        image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
+                        img_list.append(image)
                     # cv2.imwrite(str(i)+".png", image)
-                    img_dict[k][v] = image
+                    img_dict[k] = img_list
                 return img_dict
 
             else:
                 if blacklevelcorrection:
                     raw_images = Camera.blacklevelcorrection(uncorrected_image=raw_images, correction_type="mean")
-
                 return Camera.demosaicImage(raw_image=raw_images, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
         # cv2.imwrite("Test.png", images)
 
@@ -797,9 +805,10 @@ class Camera(CameraTemplate, ABC):
     def checkFirstPhase(images: List[np.ndarray]) -> int:
         ref_image = images[0]
         first_phase: int = 2
+        # todo: check if threshold can be modified depentend on the mean intensity of the image
         for i in range(1, len(images)):
             # print(np.abs(np.mean(ref_image) - np.mean(images[i])))
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 6:
+            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 10:
                 i += 1
                 first_phase = i
                 break
