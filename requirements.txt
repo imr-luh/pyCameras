@@ -10,4 +10,4 @@ scikit-image
 colour_demosaicing
 matplotlib
 func_timeout
-mypy
+

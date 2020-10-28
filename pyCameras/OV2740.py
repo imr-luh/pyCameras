@@ -513,34 +513,34 @@ class Camera(CameraTemplate, ABC):
         return image_array
 
     @staticmethod
-    def blacklevelcorrection(uncorrected_image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
+    def blacklevelcorrection(uncorrected_image: np.ndarray, correction_type: str = "mean", bit: int=10) -> np.ndarray:
         try:
             cwd = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/'
             path = os.path.join(cwd + '/images/black_level_mean.npy')
             if os.path.exists(path):
                 ref_image = np.load(path)
-                if correction_type == "pixelwise":
-                    black_level_image = ref_image
-                elif correction_type == "mean":
-                    mean = np.mean(ref_image)
-                    black_level_image = np.ones_like(ref_image) * mean
-                else:
-                    black_level_image = ref_image
-
-                saturation_image = np.ones_like(uncorrected_image) * 1023
+            else:
+                print(f"path of black images not found")
+                black_level_image = np.ones_like(uncorrected_image) * 50
+            saturation_image = np.ones_like(uncorrected_image) * (2**bit - 1)
+            if correction_type.lower() == "pixelwise":
+                black_level_image = ref_image
+            elif correction_type.lower() == "measurement":
+                black_level_image = np.subtract(ref_image, 20).astype(np.int16)
+                diff = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
+                corrected_image = np.where(diff < 0, 0, uncorrected_image)
+            else:
+                mean = np.mean(ref_image)
+                black_level_image = np.ones_like(ref_image) * mean
                 if (uncorrected_image > 1000).sum() < 10000:
                     corrected_image = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
                 else:
                     corrected_image = np.where(np.subtract(uncorrected_image, black_level_image).astype(np.int16) < 0,
                                                np.subtract(saturation_image, black_level_image).astype(np.int16),
                                                np.subtract(uncorrected_image, black_level_image).astype(np.int16))
-                blacklevel_factor = 1023 / (np.subtract(saturation_image, black_level_image))
-                image = np.multiply(corrected_image.copy(), blacklevel_factor)
-                return np.clip(image, 0, 1023)
-
-            else:
-                print(f"path of black images not found")
-                return uncorrected_image
+            # blacklevel_factor = 1023 / (np.subtract(saturation_image, black_level_image))
+            # corrected_image = np.multiply(corrected_image.copy(), blacklevel_factor).astype(np.int16)
+            return np.clip(corrected_image, 0, 1023).astype(np.int16)
 
         except Exception as e:
             print(f"failed back level correction  {e}")
@@ -551,14 +551,13 @@ class Camera(CameraTemplate, ABC):
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], 1.7)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], 1.5)
         raw_image = np.clip(raw_image, 0, 1023)
-
+        raw_image = raw_image.astype(np.uint16)
         if measurement:
             # Demosaicing using bilinear interpolation
-            demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY)
-
-            if Camera.getCudaSupport():
-                # Bayer Demosaicing (Malvar, He, and Cutler)
-                demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+            if gray:
+                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY)
+            else:
+                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB)
 
         else:
             if algorithm.lower() == "ddfapd":
@@ -576,6 +575,10 @@ class Camera(CameraTemplate, ABC):
             elif algorithm.lower() == "edge":
                 demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_EA, dstCn=1)
 
+            elif Camera.getCudaSupport():
+                # Bayer Demosaicing (Malvar, He, and Cutler)
+                demosaic_img = cv2.cuda.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY_MHT, dstCn=1)
+
             else:
                 demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
 
@@ -583,13 +586,8 @@ class Camera(CameraTemplate, ABC):
 
         norm_image = demosaic_img.copy() / 1023
 
-        if len(norm_image.shape) == 3:
-            if algorithm.lower() == "ddfapd":
+        if gray and len(norm_image.shape) == 3:
                 norm_image = cv2.cvtColor(src=norm_image, dst=norm_image, dstCn=cv2.COLOR_RGB2GRAY)
-                # norm_image = color.rgb2gray(norm_image)
-            else:
-                norm_image = cv2.cvtColor(src=norm_image, code=cv2.COLOR_BGR2GRAY)
-                # norm_image = color.bgr2gray(norm_image)
 
         if bit == 8:
             image = norm_image.copy() * 255
@@ -602,7 +600,7 @@ class Camera(CameraTemplate, ABC):
 
     @staticmethod
     def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray], gray: bool = False,
-                          bit: int = 8, blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
+                          bit: int = 10, blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
                           measurement: bool = False) -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
             # i = 0
@@ -611,7 +609,12 @@ class Camera(CameraTemplate, ABC):
                 for raw_image in raw_images:
                     # i += 1
                     if blacklevelcorrection:
-                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
+                        if measurement:
+                            raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image,
+                                                                    correction_type="measurement", bit=10)
+                        else:
+                            raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image,
+                                                                    correction_type="mean", bit=10)
 
                     image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
                     # cv2.imwrite(str(i)+".png", image)
@@ -623,8 +626,14 @@ class Camera(CameraTemplate, ABC):
                 for k, v in raw_images.items():
                     for raw_image in v:
                         if blacklevelcorrection:
-                            raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, correction_type="mean")
-                        image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
+                            if measurement:
+                                raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image, bit=10,
+                                                                        correction_type="measurement")
+                            else:
+                                raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_image,
+                                                                        correction_type="mean", bit=10)
+                        image = Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm,
+                                                     measurement=measurement)
                         img_list.append(image)
                     # cv2.imwrite(str(i)+".png", image)
                     img_dict[k] = img_list
@@ -632,9 +641,16 @@ class Camera(CameraTemplate, ABC):
 
             else:
                 if blacklevelcorrection:
-                    raw_images = Camera.blacklevelcorrection(uncorrected_image=raw_images, correction_type="mean")
-                return Camera.demosaicImage(raw_image=raw_images, gray=gray, bit=bit, algorithm=algorithm, measurement=measurement)
-        # cv2.imwrite("Test.png", images)
+                    if measurement:
+                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_images, bit=10,
+                                                                correction_type="measurement")
+                    else:
+                        raw_image = Camera.blacklevelcorrection(uncorrected_image=raw_images, bit=10,
+                                                                correction_type="mean")
+                else:
+                    raw_image = raw_images
+                return Camera.demosaicImage(raw_image=raw_image, gray=gray, bit=bit, algorithm=algorithm,
+                                            measurement=measurement)
 
         except Exception as e:
             print(f"function call prost processing failed {e}")
@@ -807,8 +823,8 @@ class Camera(CameraTemplate, ABC):
         first_phase: int = 2
         # todo: check if threshold can be modified depentend on the mean intensity of the image
         for i in range(1, len(images)):
-            # print(np.abs(np.mean(ref_image) - np.mean(images[i])))
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 10:
+            print(np.abs(np.mean(ref_image) - np.mean(images[i])))
+            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 3:
                 i += 1
                 first_phase = i
                 break
@@ -839,65 +855,67 @@ if __name__ == '__main__':
 
     ##########################################################
     # Code for live view
-    # cam.setTriggerMode("Out")
-    # cam.setFramerate(framerate=10)
-    # cam.setExposureMicrons(15000)
-    #
-    # cam.listFeatures()
-    # refImage = cam.getImage()
-    # ref_image = cam.postProcessImages(refImage, colour=True, bit=8, blacklevelcorrection=False)
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', ref_image)
-    # i = 0
-    # while True:
-    #     cam.logger.debug(f'Iteration: {i}')
-    #     ImageList: list = []
-    #     try:
-    #         img = func_timeout(2, cam.getImage)
-    #     except:
-    #         logger.debug('get Image failed')
-    #         img = cam.getImage()
-    #     finally:
-    #         Image = cam.postProcessImages(img, colour=True, bit=8, blacklevelcorrection=False)
-    #         if np.array_equal(ref_image, Image):
-    #             print("images are identical")
-    #             break
-    #         ref_image = Image
-    #         Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-    #         cv2.imshow('test', Image)
-    #         key = cv2.waitKey(1)
-    #         if key & 0xFF == ord('q'):
-    #             cv2.destroyAllWindows()
-    #             break
-    #         i += 1
-    # del cam
+    cam.setTriggerMode("Out")
+    cam.setFramerate(framerate=10)
+    cam.setExposureMicrons(20000)
+    # gray = True
+
+    cam.listFeatures()
+    refImage = cam.getImage()
+    # ref_image = cam.postProcessImages(refImage, gray=gray, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
+    ref_image = cam.postProcessImages(refImage, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
+    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    cv2.imshow('test', ref_image)
+    i = 0
+    while True:
+        cam.logger.debug(f'Iteration: {i}')
+        ImageList: list = []
+        try:
+            img = func_timeout(2, cam.getImage)
+        except:
+            logger.debug('get Image failed')
+            img = cam.getImage()
+        finally:
+            Image = cam.postProcessImages(img, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
+            if np.array_equal(ref_image, Image):
+                print("images are identical")
+                break
+            ref_image = Image
+            Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
+            cv2.imshow('test', Image)
+            key = cv2.waitKey(1)
+            if key & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                break
+            i += 1
+    del cam
     #########################################################
 
     #########################################################
     # Code for the image acquisition of x Frames
-    cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=10)
-    expectedImages = 16
-    cam.setExposureMicrons(20000)
-    start = time.time()
-
-    while True:
-        cam.prepareRecording(expectedImages)
-        Images = cam.record()
-        Images = cam.postProcessImages(Images, gray=True, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
-        print(len(Images))
-        end = time.time()
-
-        cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-        for image in Images:
-            # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            cv2.imshow('test', image)
-            key = cv2.waitKey(1)
-            if key & 0xFF == ord('q'):
-                cv2.destroyAllWindows()
-                raise StopIteration
-
-    del cam
+    # cam.setTriggerMode("Out")
+    # cam.setFramerate(framerate=10)
+    # expectedImages = 16
+    # cam.setExposureMicrons(20000)
+    # start = time.time()
+    #
+    # while True:
+    #     cam.prepareRecording(expectedImages)
+    #     Images = cam.record()
+    #     Images = cam.postProcessImages(Images, gray=True, bit=8, blacklevelcorrection=False, algorithm='interpolation', measurement=True)
+    #     print(len(Images))
+    #     end = time.time()
+    #
+    #     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    #     for image in Images:
+    #         # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #         cv2.imshow('test', image)
+    #         key = cv2.waitKey(1)
+    #         if key & 0xFF == ord('q'):
+    #             cv2.destroyAllWindows()
+    #             raise StopIteration
+    #
+    # del cam
     #########################################################
 
     # ##########################################################
