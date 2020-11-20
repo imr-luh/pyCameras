@@ -301,8 +301,9 @@ class Camera(CameraTemplate, ABC):
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self._streamingMode = False
         if self.measurementMode:
+            # todo: check this setup
             if not self.usb3:
-                self._actual_images = requested_images * 2 + 3
+                self._actual_images = requested_images * 2 + 2
             else:
                 self._actual_images = requested_images * 2 + 2
         else:
@@ -316,7 +317,10 @@ class Camera(CameraTemplate, ABC):
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
             if platform.processor().lower() == "aarch64" or self.usb3:
-                req.count = 2  # nr of buffer frames for raspi
+                if self.debug:
+                    req.count = 2  # nr of buffer frames for raspi
+                else:
+                    req.count = 2  # nr of buffer frames for raspi
             else:
                 req.count = 1  # nr of buffer frames for usbc PC
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
@@ -366,7 +370,6 @@ class Camera(CameraTemplate, ABC):
                 image_counter: int = 0
 
                 for i in range(start_image, len(raw_images)):
-                    # if image_counter % 2 == 0:
                     if self.debug:
                         self.cameraImages.append(raw_images[i])
                     elif image_counter % 2 == 0 and not self.usb3:
@@ -576,8 +579,8 @@ class Camera(CameraTemplate, ABC):
             b_scale = rgb_scale['b']
 
         else:
-            r_scale = 1.0
-            b_scale = 1.6
+            r_scale = 1.6
+            b_scale = 1.5
 
         raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], r_scale)
         raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], b_scale)
@@ -624,7 +627,7 @@ class Camera(CameraTemplate, ABC):
     @staticmethod
     def postProcessImages(raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray], gray: bool = False,
                           bit: int = 10, blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
-                          correction_type: Optional[str] = None) -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
+                          correction_type: Optional[str] = 'mean') -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
             # i = 0
             img_list: list = []
@@ -869,25 +872,28 @@ if __name__ == '__main__':
     # Code for live view
     cam.setTriggerMode("Out")
     cam.setFramerate(framerate=10)
-    cam.setExposureMicrons(20000)
+    cam.setExposureMicrons(70000)
     # gray = True
 
     cam.listFeatures()
     refImage = cam.getImage()
-    ref_image = cam.postProcessImages(refImage, bit=8, blacklevelcorrection=False, algorithm='interpolation')
+    ref_image = cam.postProcessImages(refImage, bit=8, blacklevelcorrection=True)
+    # cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
     cv2.imshow('test', ref_image)
     i = 0
     while True:
         cam.logger.debug(f'Iteration: {i}')
-        ImageList: list = []
         try:
-            img = func_timeout(2, cam.getImage)
+            img = None
+            img = func_timeout(timeout=1, func=cam.getImage)
         except Exception as e:
             logger.debug(f'get Image failed {e}')
-            img = cam.getImage()
+
         finally:
-            Image = cam.postProcessImages(img, bit=8, blacklevelcorrection=False, algorithm='interpolation')
+            if img is None:
+                img = cam.getImage()
+            Image = cam.postProcessImages(img, bit=8, blacklevelcorrection=True)
             if np.array_equal(ref_image, Image):
                 print("images are identical")
                 break
