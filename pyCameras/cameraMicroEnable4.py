@@ -605,7 +605,7 @@ class Camera(CameraTemplate):
         self._clSerialWrite()
         raise NotImplementedError('Implement me!!!')
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None

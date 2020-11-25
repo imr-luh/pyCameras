@@ -503,7 +503,7 @@ class Camera(CameraTemplate):
             self.node_map.GainRaw.value = gain
         return self.node_map.GainRaw.value
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None

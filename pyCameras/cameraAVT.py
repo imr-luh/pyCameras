@@ -176,10 +176,6 @@ class Camera(CameraTemplate):
         self.registerFeature('numCams', self._setNumberCams)
         self.registerFeature('numberCams', self._setNumberCams)
         self.registerFeature('numberOfCameras', self._setNumberCams)
-        # Function to set pixel format
-        self.registerFeature('pixelFormat', self.setFormat)
-        self.registerFeature('pixelType', self.setFormat)
-        self.registerFeature('format', self.setFormat)
 
         self.framelist = []
         self.imgData = []
@@ -727,7 +723,7 @@ class Camera(CameraTemplate):
             self.device.Gain = gain
         return self.device.Gain
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
