@@ -273,7 +273,9 @@ class CameraTemplate(SettingsHandler):
 
         self.registerFeature('Gain', self.setGain)
 
-        self.registerFeature('Format', self.setFormat)
+        self.registerFeature('Format', self.setPixelFormat)
+        self.registerFeature('PixelFormat', self.setPixelFormat)
+        self.registerFeature('PixelType', self.setPixelFormat)
 
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
@@ -383,14 +385,14 @@ class CameraTemplate(SettingsHandler):
         raise NotImplementedError
 
     @property
-    def format(self):
-        return self.setFormat()
+    def pixelFormat(self):
+        return self.setPixelFormat()
 
-    @format.setter
-    def format(self, fmt):
-        self.setFormat(fmt)
+    @pixelFormat.setter
+    def pixelFormat(self, fmt):
+        self.setPixelFormat(fmt)
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
