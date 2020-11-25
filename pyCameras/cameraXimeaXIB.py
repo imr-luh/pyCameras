@@ -217,7 +217,7 @@ class CameraXimeaXIB(CameraTemplate):
 
         self.registerFeature('Gain', self.setGain)
 
-        self.registerFeature('Format', self.setFormat)
+        self.registerFeature('Format', self.setPixelFormat)
 
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
@@ -279,7 +279,7 @@ class CameraXimeaXIB(CameraTemplate):
             return self.device.get_gain()
         self.device.set_gain(gain)
 
-    def setFormat(self, format=None):
+    def setPixelFormat(self, format=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
