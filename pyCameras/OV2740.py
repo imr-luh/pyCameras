@@ -134,7 +134,7 @@ class Camera(CameraTemplate, ABC):
         self.usb3: bool = False
         self.bit_death = 10
         self.debug: bool = False
-        self.pixelFormat: str = "RGB10"
+        self.pixelFormatStr: str = "RGB10"
         self.gray = False
 
 
@@ -156,14 +156,9 @@ class Camera(CameraTemplate, ABC):
         """
         self.logger.debug('Registering camera features')
         self.registerFeature('ExposureInfo', self.getExposureInfo)
-        self.registerFeature('Resolution', self.setResolution)
-        self.registerFeature('Format', self.getFormat)
-        self.registerFeature('TriggerMode', self.setTriggerMode)
-        self.registerFeature('Trigger', self.setTriggerMode)
         self.registerFeature('Framerate', self.setFramerate)
         self.registerFeature('Capability', self.getCapability)
         self.registerFeature('MeasurementMode', self.setMeasurementMode)
-        self.registerFeature('PixelFormat', self.setPixelFormat)
 
     def listFeatures(self) -> None:
         """
@@ -177,23 +172,24 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def setPixelFormat(self, fmt: str = "Mono10"):
-        self.pixelFormat = fmt
-        if self.pixelFormat.lower() == "rgb8":
+    def setPixelFormat(self, fmt: str = "Mono10") -> str:
+        self.pixelFormatStr = fmt
+        if self.pixelFormatStr.lower() == "rgb8":
             self.gray = False
             self.bit_death = 8
-        elif self.pixelFormat.lower() == "mono8":
+        elif self.pixelFormatStr.lower() == "mono8":
             self.gray = True
             self.bit_death = 8
-        elif self.pixelFormat.lower() == "rgb10":
+        elif self.pixelFormatStr.lower() == "rgb10":
             self.gray = False
             self.bit_death = 10
-        elif self.pixelFormat.lower() == "mono10":
+        elif self.pixelFormatStr.lower() == "mono10":
             self.gray = True
             self.bit_death = 10
         else:
             raise ValueError(f"Format unknown {fmt}")
 
+        return self.pixelFormatStr
 
     def setMeasurementMode(self, mode: bool = False) -> bool:
         self.measurementMode = mode
