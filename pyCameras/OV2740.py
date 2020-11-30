@@ -134,9 +134,8 @@ class Camera(CameraTemplate, ABC):
         self.usb3: bool = False
         self.bit_death = 10
         self.debug: bool = False
-        self.pixelFormatStr: str = "RGB10"
+        self.setPixelFormat(fmt="Mono10")
         self.gray = False
-
 
     @staticmethod
     def listDevices() -> list:
@@ -172,23 +171,41 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def setPixelFormat(self, fmt: str = "Mono10") -> str:
-        self.pixelFormatStr = fmt
-        if self.pixelFormatStr.lower() == "rgb8":
-            self.gray = False
-            self.bit_death = 8
-        elif self.pixelFormatStr.lower() == "mono8":
-            self.gray = True
-            self.bit_death = 8
-        elif self.pixelFormatStr.lower() == "rgb10":
-            self.gray = False
-            self.bit_death = 10
-        elif self.pixelFormatStr.lower() == "mono10":
-            self.gray = True
-            self.bit_death = 10
-        else:
-            raise ValueError(f"Format unknown {fmt}")
+    def setPixelFormat(self, fmt = None) -> str:
+        """
+        Set the image format to the passed setting or read the current format
+        by passing None
 
+        Parameters
+        ----------
+        fmt : str
+            String describing the desired image format (e.g. "mono8"), or None
+            to read the current image format. Check camera technical manual for available formats,
+            may differ from model to model.
+
+        Returns
+        -------
+        fmt : str
+            The image format after applying the passed value
+        """
+
+        if fmt is not None:
+            self.logger.debug(f'Setting <PixelFormat> to {fmt}')
+            self.pixelFormatStr = fmt
+            if self.pixelFormatStr.lower() == "rgb8":
+                self.gray = False
+                self.bit_death = 8
+            elif self.pixelFormatStr.lower() == "mono8":
+                self.gray = True
+                self.bit_death = 8
+            elif self.pixelFormatStr.lower() == "rgb10":
+                self.gray = False
+                self.bit_death = 10
+            elif self.pixelFormatStr.lower() == "mono10":
+                self.gray = True
+                self.bit_death = 10
+            else:
+                raise ValueError(f"Format unknown {fmt}")
         return self.pixelFormatStr
 
     def setMeasurementMode(self, mode: bool = False) -> bool:
@@ -400,8 +417,18 @@ class Camera(CameraTemplate, ABC):
                     self.cameraImages.append(raw_images[i])
 
             if self.measurementMode:
-                self.cameraImages = self.postProcessImages(raw_images=self.cameraImages, blacklevelcorrection=True,
+                # self.cameraImages = self.postProcessImages(raw_images=self.cameraImages, blacklevelcorrection=True,
+                #                                              correction_type="mean")
+                self.cameraImages = self.postProcessImages(raw_images=self.cameraImages, blacklevelcorrection=False,
                                                              correction_type="mean")
+                # bufferlist = []
+                # for img in self.cameraImages:
+                #     lower_offset = 90
+                #     corrected_image = np.where(img < lower_offset, 0, img)
+                #     upper_offset = 950
+                #     img = np.where(corrected_image > upper_offset, 1023, corrected_image)
+                #     bufferlist.append(corrected_image)
+                #     self.cameraImages = bufferlist
 
             if len(self.cameraImages) != self.requested_images:
                 self.logger.warning(f"requested {self.requested_images} images but got {len(self.cameraImages)}")
@@ -573,17 +600,21 @@ class Camera(CameraTemplate, ABC):
             if correction_type.lower() == "pixelwise":
                 corrected_image = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
             elif correction_type.lower() == "mean":
-                black_level_image = np.mean(black_level_image)*1.5
-                diff = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
-                corrected_image = np.where(diff < 0, 0, uncorrected_image)
-                corrected_image = np.where(corrected_image > max_pix_val, 0, uncorrected_image)
+                # lower_offset = np.mean(black_level_image) * 2.5
+                lower_offset = 150
+                lower_diff = np.subtract(uncorrected_image, lower_offset).astype(np.int16)
+                corrected_image = np.where(lower_diff < 0, 0, uncorrected_image)
+                # upper_offset = np.mean(black_level_image) * 2
+                upper_offset = 900
+                # upper_diff = np.subtract(saturation_image, upper_offset).astype(np.int16)
+                corrected_image = np.where(corrected_image > upper_diff, 0, corrected_image)
             else:
                 print(f"no black level correction applied")
                 return uncorrected_image
 
-            blacklevel_factor = max_pix_val / (np.subtract(saturation_image, black_level_image))
-            corrected_image = np.multiply(corrected_image.copy(), blacklevel_factor).astype(np.int16)
-            return np.clip(corrected_image, 0, max_pix_val).astype(np.int16)
+            # blacklevel_factor = max_pix_val / (np.subtract(saturation_image, lower_offset))
+            # corrected_image = np.multiply(corrected_image.copy(), blacklevel_factor).astype(np.int16)
+            return np.clip(corrected_image, 0, max_pix_val).astype(np.uint16)
 
         except Exception as e:
             print(f"failed back level correction  {e}")
@@ -645,16 +676,14 @@ class Camera(CameraTemplate, ABC):
                           blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
                           correction_type: Optional[str] = 'mean') -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
-            # i = 0
             img_list: list = []
             if isinstance(raw_images, list):
                 for raw_image in raw_images:
-                    # i += 1
+
                     if blacklevelcorrection:
                         raw_image = self.blacklevelcorrection(uncorrected_image=raw_image,
                                                                 correction_type=correction_type)
                     image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
-                    # cv2.imwrite(str(i)+".png", image)
                     img_list.append(image)
                 return img_list
 
@@ -667,7 +696,6 @@ class Camera(CameraTemplate, ABC):
                                                                     correction_type=correction_type)
                         image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
                         img_list.append(image)
-                    # cv2.imwrite(str(i)+".png", image)
                     img_dict[k] = img_list
                 return img_dict
 
