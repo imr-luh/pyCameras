@@ -98,6 +98,7 @@ class CameraTemplate(SettingsHandler):
         - self.closeDevice()
         - self.getImage()
     """
+
     def __init__(self, device_handle):
         """
         Template class for camera objects. This is only meant to define the
@@ -114,8 +115,7 @@ class CameraTemplate(SettingsHandler):
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
         super(CameraTemplate, self).__init__()
-        self.device_handle = device_handle  # Use this to identify and open the
-                                            # device
+        self.device_handle = device_handle  # Use this to identify and open the device
         self.device = None  # Use this variable to store the device itself
         self.registerSharedFeatures()
 
@@ -182,7 +182,7 @@ class CameraTemplate(SettingsHandler):
             True if the camera connection is closed, False if the connection is
             opened
         """
-        return not(self.isOpen())
+        return not (self.isOpen())
 
     @abc.abstractmethod
     def getImage(self, *args, **kwargs):
@@ -273,7 +273,9 @@ class CameraTemplate(SettingsHandler):
 
         self.registerFeature('Gain', self.setGain)
 
-        self.registerFeature('Format', self.setFormat)
+        self.registerFeature('Format', self.setPixelFormat)
+        self.registerFeature('PixelFormat', self.setPixelFormat)
+        self.registerFeature('PixelType', self.setPixelFormat)
 
         self.registerFeature('TriggerMode', self.setTriggerMode)
         self.registerFeature('Trigger', self.setTriggerMode)
@@ -383,14 +385,14 @@ class CameraTemplate(SettingsHandler):
         raise NotImplementedError
 
     @property
-    def format(self):
-        return self.setFormat()
+    def pixelFormat(self):
+        return self.setPixelFormat()
 
-    @format.setter
-    def format(self, fmt):
-        self.setFormat(fmt)
+    @pixelFormat.setter
+    def pixelFormat(self, fmt):
+        self.setPixelFormat(fmt)
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None

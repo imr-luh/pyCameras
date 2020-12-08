@@ -241,6 +241,27 @@ class Camera(CameraTemplate):
             raise _MicroEnableException(err)
         return retval
 
+    def _getParamWithDouble(self, parameter):
+        """
+        Short form of Fg_getParameterWithInt to reduce line length
+        (since self.device and self.device_handle are always passed).
+
+        Parameters
+        ----------
+        parameter : silicon software enum
+            Defines the parameter, which should be read.
+
+        Returns
+        -------
+        value : double
+            Value of requested parameter.
+        """
+        err, retval = s.Fg_getParameterWithDouble(self.device, parameter,
+                                               self.device_handle)
+        if err != s.FG_OK:
+            raise _MicroEnableException(err)
+        return retval
+
     def _setParamWithInt(self, parameter, value):
         """
         Short form of Fg_setParameterWithInt to reduce line length
@@ -262,6 +283,34 @@ class Camera(CameraTemplate):
                                  self.device_handle)
         while retval != value:
             retval = self._getParamWithInt(parameter)
+            if iterations > MAX_ITER:
+                raise TimeoutError(
+                    "Max iterations reached while waiting to set parameter!")
+            iterations += 1
+        # Sleep to fully apply setting... there have been timing issues...
+        time.sleep(.1)
+
+    def _setParamWithDouble(self, parameter, value):
+        """
+        Short form of Fg_setParameterWithInt to reduce line length
+        (since self.device and self.device_handle are always passed).
+
+        Parameters
+        ----------
+        parameter : silicon software enum
+            Defines the parameter, which should be read.
+
+        value : double
+            Value of parameter.
+        """
+        # Set retval to value which is not expected to be set a value
+        # to ensure at least one iteration through the while loop
+        retval = -99
+        iterations = 0
+        s.Fg_setParameterWithDouble(self.device, parameter, value,
+                                 self.device_handle)
+        while retval != value:
+            retval = self._getParamWithDouble(parameter)
             if iterations > MAX_ITER:
                 raise TimeoutError(
                     "Max iterations reached while waiting to set parameter!")
@@ -605,7 +654,7 @@ class Camera(CameraTemplate):
         self._clSerialWrite()
         raise NotImplementedError('Implement me!!!')
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -685,6 +734,32 @@ class Camera(CameraTemplate):
                 'None, "in", "out", or "off". Got {mode}'.format(
                     mode=mode))
 
+    def setTriggerDelay(self, microns=None):
+        """
+        Setting a delay so that the camera acquires an image after a given delay in microseconds. Not that the trigger
+        mode has to be set to 'in' in order to be able to set the trigger delay.
+        If no parameter is specified, the camera returns its current trigger delay.
+
+        Parameters
+        ----------
+        microns: double
+            Delay specified in micro seconds
+
+        Returns
+        -------
+        delay: double
+            Current trigger delay in microseconds
+
+        """
+        if not microns:
+            return self._getParamWithDouble(s.FG_EXSYNCDELAY)
+        if not self.setTriggerMode() == "in":
+            raise ValueError("Triggermode is not activated. Please set to triggermode of the camera to \"in\". Current trigger mode is {mode}".format(mode=self.setTriggerMode()))
+        if microns < 0 or microns > 10230:
+            raise AttributeError("Trigger delay is out of range. Value \"microns\" must be in range 0 - 10230")
+        self.logger.debug("Setting trigger delay to {val}".format(val=microns))
+        self._setParamWithDouble(s.FG_EXSYNCDELAY, microns)
+
     def _setRoiOffset(self, offset=None):
         """
         Sets the offset of the current region of interest (ROI) of the camera
@@ -752,25 +827,46 @@ if __name__ == '__main__':
     # Camera.listDevices()
     MicroEnable4 = Camera(0)
     #
-    MicroEnable4.setExposureMicrons(50000)
-    MicroEnable4.setTriggerMode('in')
+  #  MicroEnable4.setExposureMicrons(1500)
+    # MicroEnable4.setExposureMicrons(7300)
+    #MicroEnable4.setExposureMicrons(17000)
+    MicroEnable4.setExposureMicrons(2300)
+    # MicroEnable4.setTriggerMode('in')
+
 
     # MicroEnable4.grabStart()
     # time.sleep(2)
     # imgs = MicroEnable4.grabStop()
-    # MicroEnable4.setTriggerMode('off')
+    MicroEnable4.setTriggerMode('off')
     #
+
     # MicroEnable4.prepareRecording(5)
-    #
     # imgs = MicroEnable4.record()
-    imgs = MicroEnable4.getImages(20)
-    print('num images:', len(imgs))
-    for img in imgs:
-        cv2.imshow('img_test', img)
-        cv2.waitKey(0)
 
-    # MicroEnable4._liveView()
+    # imgs = MicroEnable4.getImages(2000)
 
+
+    # imgs = MicroEnable4.getImages(10)
+    # print('num images:', len(imgs))
+    # for i, img in enumerate(imgs):
+    #     print(i)
+    #     cv2.imshow('img_test', img)
+    #     cv2.waitKey(0)
+        # cv2.imwrite("/home/tx90/Data/lci_data/images/lci"+str(i)+".png", img)
+
+
+    # MicroEnable4.grabStart()
+    # time.sleep(30)
+    # imgs = MicroEnable4.grabStop()
+    # for i, img in enumerate(imgs):
+    #     print(i)
+    #     cv2.imshow('img_test', img)
+    #     cv2.waitKey(0)
+
+    MicroEnable4._liveView()
+
+
+    # img = MicroEnable4.getImage()
     # img = MicroEnable4.getImage()
     # cv2.imshow("sd", img)
     # cv2.waitKey(0)

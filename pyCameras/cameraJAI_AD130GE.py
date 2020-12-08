@@ -215,7 +215,8 @@ class Camera(CameraTemplate):
 
     def _frame_callback(self):
         """
-        Callback function to fill frames with data
+        Callback function to fill frames with data. Images are
+        converted to RGB.
         """
         with self.device.fetch_buffer() as buffer:
             imgData = np.ndarray(buffer=buffer.payload.components[0].data,
@@ -223,6 +224,7 @@ class Camera(CameraTemplate):
                                  shape=(
                                      (buffer.payload.components[0].height,
                                       buffer.payload.components[0].width))).copy()
+            imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
             self.img_list.append(imgData)
 
     def listDevices(self):
@@ -276,12 +278,13 @@ class Camera(CameraTemplate):
         bool
             True if the camera connection is open, False if it is not
         """
-        # Assuming that if there is a device given in self.device, device is opened.
+        # Assuming that if there is a device given in self.device, device is
+        # opened.
         return self.device is not None
 
     def getImage(self, *args, **kwargs):
         """
-        Get an image from the camera device
+        Get an image from the camera device. The image is then converted to RGB.
 
         *args and **kwargs are ignored parameters!
 
@@ -298,6 +301,7 @@ class Camera(CameraTemplate):
                                  dtype=np.uint8,
                                  shape=((buffer.payload.components[0].height,
                                          buffer.payload.components[0].width))).copy()
+            imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
 
         self.device.stop_image_acquisition()
 
@@ -306,7 +310,8 @@ class Camera(CameraTemplate):
         return imgData
 
     def prepareRecording(self, num):
-        """ Sets the camera to MultiFrame mode and prepares frames. Use with
+        """
+        Sets the camera to MultiFrame mode and prepares frames. Use with
         "record()"-function.
 
         Parameters
@@ -319,9 +324,10 @@ class Camera(CameraTemplate):
         self._expected_triggered_images = num
 
     def record(self):
-        """ Blocking image acquisition, ends acquisition when num frames are
+        """
+        Blocking image acquisition, ends acquisition when num frames are
         captured, where num is set by "prepareRecording(num)". Only use with
-        "prepareRecording(num)".
+        "prepareRecording(num)". The images are converted to RGB.
 
         Returns
         -------
@@ -335,6 +341,7 @@ class Camera(CameraTemplate):
                                      dtype=np.uint8,
                                      shape=((buffer.payload.components[0].height,
                                              buffer.payload.components[0].width))).copy()
+                imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
                 self.img_list.append(imgData)
 
         # Clean Up
@@ -503,7 +510,7 @@ class Camera(CameraTemplate):
             self.node_map.GainRaw.value = gain
         return self.node_map.GainRaw.value
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -585,5 +592,5 @@ class Camera(CameraTemplate):
 if __name__ == '__main__':
     ##### Avaiable camera Model names
     cam_device = Camera("AD-130GE_#0")
-    # cam_device = Camera("AD-130GE_#1")
+    # cam_device = Camera("AD-130GE_#0")
     cam_device._liveView()

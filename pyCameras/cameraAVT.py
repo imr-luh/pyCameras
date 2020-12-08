@@ -18,9 +18,9 @@ https://github.com/morefigs/pymba.git
 '''
 
 import copy
+import logging
 import re
 import time
-import logging
 
 import numpy as np
 from pymba import Vimba
@@ -154,7 +154,9 @@ class Camera(CameraTemplate):
         # time.sleep(0.2)
         self.device.TriggerMode = 'Off'
 
-        self.device.GevSCPSPacketSize = 1500  # Automatic setting not yet implemented in pymba (date: 11.12.17)
+        # self.device.GevSCPSPacketSize = 1500  # Automatic setting not yet implemented in pymba (date: 11.12.17)
+        # self.device.GevSCPSPacketSize = 8228
+        self.device.runFeatureCommand("GVSPAdjustPacketSize")
         # Influences framerate, necessary if network bandwidth is not big enough
         # NOTE: Functions self._setMaxTransferRate, self._setTransferRate and self._setNumberCams may change this value
         # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
@@ -174,10 +176,6 @@ class Camera(CameraTemplate):
         self.registerFeature('numCams', self._setNumberCams)
         self.registerFeature('numberCams', self._setNumberCams)
         self.registerFeature('numberOfCameras', self._setNumberCams)
-        # Function to set pixel format
-        self.registerFeature('pixelFormat', self.setFormat)
-        self.registerFeature('pixelType', self.setFormat)
-        self.registerFeature('format', self.setFormat)
 
         self.framelist = []
         self.imgData = []
@@ -425,7 +423,17 @@ class Camera(CameraTemplate):
         self.device.runFeatureCommand('AcquisitionStart')
 
         frame.waitFrameCapture(1000)
+        incomplete_frames = 0
+        incomplete_frame_limit = 20
+        while frame.getReceiveStatus() != 0:
+            frame.queueFrameCapture()
+            frame.waitFrameCapture(1000)
+            incomplete_frames += 1
+            if incomplete_frames > incomplete_frame_limit:
+                raise RuntimeError("More than {lim} frames in a row were incomplete! Check transfer settings!"
+                                   "".format(lim=incomplete_frame_limit))
         self.device.runFeatureCommand('AcquisitionStop')
+        self.logger.debug("Trashed frames: {t_frames}".format(t_frames=incomplete_frames))
 
         # Get image data ...
         imgData = np.ndarray(buffer=frame.getBufferByteData(),
@@ -715,7 +723,7 @@ class Camera(CameraTemplate):
             self.device.Gain = gain
         return self.device.Gain
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -737,6 +745,7 @@ class Camera(CameraTemplate):
             self.logger.debug('Setting <PixelFormat> to {fmt}'
                               ''.format(fmt=fmt))
             self.device.PixelFormat = fmt
+            self.device.runFeatureCommand("GVSPAdjustPacketSize")
         return self.device.PixelFormat
 
     def setTriggerMode(self, mode=None):

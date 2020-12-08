@@ -108,7 +108,7 @@ class Camera(CameraTemplate):
 
         return self._gain
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         if fmt is None:
             return self._format
         self._format = fmt

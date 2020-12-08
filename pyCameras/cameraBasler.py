@@ -236,7 +236,7 @@ class Camera(CameraTemplate):
             self.device.GainRaw.SetValue(gain)
         return self.device.GainRaw.GetValue()
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
         by passing None
