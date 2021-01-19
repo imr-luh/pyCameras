@@ -119,7 +119,9 @@ class Camera(CameraTemplate, ABC):
         self._actual_images: int = 0
         self.requested_images: int = 0
         self.ExposureMicrons: int = 0
-        self.TriggerMode: str = ""
+        self.FrameRate: int = 10
+        self.TriggerMode: str = "out"
+        self.PixelFormat: str = "Mono10"
         self.buffers: List[object] = []
         self.buf: v4l2.v4l2_buffer = v4l2.v4l2_buffer()
         self.buf_type: int = 0
@@ -134,8 +136,8 @@ class Camera(CameraTemplate, ABC):
         self.usb3: bool = False
         self.bit_death = 10
         self.debug: bool = False
-        self.setPixelFormat(fmt="Mono10")
         self.gray = False
+        self.analysis_mode = False
 
     @staticmethod
     def listDevices() -> list:
@@ -155,7 +157,7 @@ class Camera(CameraTemplate, ABC):
         """
         self.logger.debug('Registering camera features')
         self.registerFeature('ExposureInfo', self.getExposureInfo)
-        self.registerFeature('Framerate', self.setFramerate)
+        self.registerFeature('FrameRate', self.setFrameRate)
         self.registerFeature('Capability', self.getCapability)
         self.registerFeature('MeasurementMode', self.setMeasurementMode)
 
@@ -171,7 +173,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def setPixelFormat(self, fmt = None) -> str:
+    def setPixelFormat(self, fmt = None ) -> str:
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -191,26 +193,29 @@ class Camera(CameraTemplate, ABC):
 
         if fmt is not None:
             self.logger.debug(f'Setting <PixelFormat> to {fmt}')
-            self.pixelFormatStr = fmt
-            if self.pixelFormatStr.lower() == "rgb8":
+            if fmt.lower() == "rgb8":
                 self.gray = False
                 self.bit_death = 8
-            elif self.pixelFormatStr.lower() == "mono8":
+            elif fmt.lower() == "mono8":
                 self.gray = True
                 self.bit_death = 8
-            elif self.pixelFormatStr.lower() == "rgb10":
+            elif fmt.lower() == "rgb10":
                 self.gray = False
                 self.bit_death = 10
-            elif self.pixelFormatStr.lower() == "mono10":
+            elif fmt.lower() == "mono10":
                 self.gray = True
                 self.bit_death = 10
             else:
                 raise ValueError(f"Format unknown {fmt}")
-        return self.pixelFormatStr
+
+            self.PixelFormat = fmt
+        return self.PixelFormat
 
     def setMeasurementMode(self, mode: bool = False) -> bool:
-        self.measurementMode = mode
-        return mode
+        if mode is not None:
+            self.measurementMode = mode
+            self.analysis_mode = not mode
+        return self.measurementMode
 
     def getCapability(self) -> v4l2.v4l2_capability:
         try:
@@ -301,7 +306,7 @@ class Camera(CameraTemplate, ABC):
         else:
             self.logger.info('No Device present.')
 
-    def setTriggerMode(self, mode: str = "") -> str:
+    def setTriggerMode(self, mode = None) -> str:
         """
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None
@@ -335,7 +340,7 @@ class Camera(CameraTemplate, ABC):
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self._streamingMode = False
-        if self.measurementMode:
+        if self.measurementMode or self.analysis_mode:
             # todo: check this setup
             if not self.usb3:
                 self._actual_images = requested_images * 2 + 2
@@ -393,6 +398,28 @@ class Camera(CameraTemplate, ABC):
             self.logger.exception(f"Failed to prepare recording: {e}")
 
     def record(self) -> List[np.ndarray]:
+        try:
+            try:
+                imgs = None
+                time_out = 3 * self._actual_images / self.FrameRate
+                imgs = func_timeout(time_out, self._record)
+            except:
+                self.logger.debug("recording failed")
+            finally:
+                if imgs is None:
+                    imgs = func_timeout(time_out, self._record)
+                return imgs
+
+        except:
+            self.logger.debug("recording failed twice")
+        finally:
+            if imgs is None:
+                imgs = self._record()
+            if self.measurementMode:
+                imgs = self.postProcessImages(raw_images=imgs, blacklevelcorrection=False, correction_type="mean")
+            return imgs
+
+    def _record(self) -> List[np.ndarray]:
         self.logger.info("Recording images")
         try:
             raw_images = self.read_buffers()
@@ -412,23 +439,9 @@ class Camera(CameraTemplate, ABC):
                     elif image_counter % 2 == 0 and self.usb3:
                         self.cameraImages.append(raw_images[i+1])
                     image_counter += 1
-            else:
-                for i in range(0, len(raw_images)):
-                    self.cameraImages.append(raw_images[i])
 
-            if self.measurementMode:
-                # self.cameraImages = self.postProcessImages(raw_images=self.cameraImages, blacklevelcorrection=True,
-                #                                              correction_type="mean")
-                self.cameraImages = self.postProcessImages(raw_images=self.cameraImages, blacklevelcorrection=False,
-                                                             correction_type="mean")
-                # bufferlist = []
-                # for img in self.cameraImages:
-                #     lower_offset = 90
-                #     corrected_image = np.where(img < lower_offset, 0, img)
-                #     upper_offset = 950
-                #     img = np.where(corrected_image > upper_offset, 1023, corrected_image)
-                #     bufferlist.append(corrected_image)
-                #     self.cameraImages = bufferlist
+            else:
+                self.cameraImages = raw_images
 
             if len(self.cameraImages) != self.requested_images:
                 self.logger.warning(f"requested {self.requested_images} images but got {len(self.cameraImages)}")
@@ -480,6 +493,26 @@ class Camera(CameraTemplate, ABC):
         return images
 
     def getImage(self) -> np.ndarray:
+        try:
+            try:
+                img = None
+                img = func_timeout(1, self._getImage)
+            except:
+                self.logger.debug("getImage failed")
+            finally:
+                if img is None:
+                    img = func_timeout(1, self._getImage)
+                return img
+        except:
+            self.logger.debug("getImage failed twice")
+        finally:
+            if img is None:
+                img = self._getImage()
+            if self.measurementMode:
+                img = self.postProcessImages(img)
+            return img
+
+    def _getImage(self) -> np.ndarray:
         """
         Get an image from the camera
 
@@ -765,7 +798,10 @@ class Camera(CameraTemplate, ABC):
         else:
             return self.ExposureMicrons
 
-    def setFramerate(self, framerate: int = 10):
+    def setFrameRate(self, frameRate = None):
+        if frameRate is None:
+            return self.FrameRate
+
         if self._streamingMode:
             self.buf_type = v4l2.v4l2_buf_type(v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE)
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
@@ -778,16 +814,18 @@ class Camera(CameraTemplate, ABC):
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
 
             self.logger.debug(
-                f'Set frame rate from {parm.parm.capture.timeperframe.denominator} fps to {framerate} fps')
+                f'Set frame rate from {parm.parm.capture.timeperframe.denominator} fps to {frameRate} fps')
 
-            if parm.parm.capture.timeperframe.denominator != framerate:
-                parm.parm.capture.timeperframe.denominator = framerate
+            if parm.parm.capture.timeperframe.denominator != frameRate:
+                parm.parm.capture.timeperframe.denominator = frameRate
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_S_PARM), parm)
                 time.sleep(0.1)
                 fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_PARM), parm)
 
-                if not (parm.parm.capture.timeperframe.denominator == framerate):
+                if not (parm.parm.capture.timeperframe.denominator == frameRate):
                     raise Exception
+
+                self.FrameRate = frameRate
 
         except Exception as e:
             self.logger.exception(f"Failed to set frame rate {framerate} fps: {e}")
@@ -888,6 +926,12 @@ class Camera(CameraTemplate, ABC):
 
         return first_phase
 
+    def setAnalysisMode(self, mode: bool = False) -> bool:
+        if mode is not None:
+            self.measurementMode = not mode
+            self.analysis_mode = mode
+        return self.analysis_mode
+
     @staticmethod
     def getCudaSupport() -> bool:
         try:
@@ -904,72 +948,61 @@ class Camera(CameraTemplate, ABC):
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
-    # cuda_support = Camera.getCudaSupport()
-    # print(cuda_support)
     available_devices = Camera.listDevices()
     logger.debug(f"Available Devices {available_devices}")
     cam = Camera(available_devices[1])
 
     cam.setTriggerMode("Out")
-    cam.setFramerate(framerate=10)
+    cam.setFrameRate(frameRate=10)
     cam.setExposureMicrons(70000)
-    cam.setPixelFormat(fmt = "Mono8")
+    cam.setPixelFormat(fmt = "RGB8")
+    # cam.setMeasurementMode(mode=True)
 
     cam.listFeatures()
 
     ##########################################################
     # Code for live view
-    # refImage = cam.getImage()
-    # ref_image = cam.postProcessImages(refImage, blacklevelcorrection=True)
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # cv2.imshow('test', ref_image)
-    # i = 0
-    # while True:
-    #     cam.logger.debug(f'Iteration: {i}')
-    #     try:
-    #         img = None
-    #         img = func_timeout(timeout=1, func=cam.getImage)
-    #     except Exception as e:
-    #         logger.debug(f'get Image failed {e}')
-    #
-    #     finally:
-    #         if img is None:
-    #             img = cam.getImage()
-    #         Image = cam.postProcessImages(img, blacklevelcorrection=True)
-    #         if np.array_equal(ref_image, Image):
-    #             print("images are identical")
-    #             break
-    #         ref_image = Image
-    #         Image = cv2.cvtColor(Image, cv2.COLOR_BGR2RGB)
-    #         cv2.imshow('test', Image)
-    #         key = cv2.waitKey(1)
-    #         if key & 0xFF == ord('q'):
-    #             cv2.destroyAllWindows()
-    #             break
-    #         i += 1
-    # del cam
+    refImage = cam.getImage()
+    ref_image = cam.postProcessImages(refImage, blacklevelcorrection=False)
+    cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    cv2.imshow('test', ref_image)
+    i = 0
+    while True:
+        cam.logger.debug(f'Iteration: {i}')
+        img = cam.getImage()
+        Image = cam.postProcessImages(img, blacklevelcorrection=False)
+        if np.array_equal(ref_image, Image):
+            print("images are identical")
+            break
+        refImage = Image
+        cv2.imshow('test', Image)
+        key = cv2.waitKey(1)
+        if key & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
+        i += 1
+    del cam
     #########################################################
 
     #########################################################
     # Code for the image acquisition of x Frames
-    # expectedImages = 10
+    # expectedImages = 17
     # start = time.time()
     #
     # while True:
     #     cam.prepareRecording(expectedImages)
     #     Images = cam.record()
-    #     Images = cam.postProcessImages(Images, algorithm='interpolation')
     #     print(len(Images))
     #     end = time.time()
     #
-    #     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    #     for image in Images:
-    #         # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    #         cv2.imshow('test', image)
-    #         key = cv2.waitKey(1)
-    #         if key & 0xFF == ord('q'):
-    #             cv2.destroyAllWindows()
-    #             raise StopIteration
+    #     # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    #     # for image in Images:
+    #     #     # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #     #     cv2.imshow('test', image)
+    #     #     key = cv2.waitKey(1)
+    #     #     if key & 0xFF == ord('q'):
+    #     #         cv2.destroyAllWindows()
+    #     #         raise StopIteration
     #
     # del cam
     #########################################################
