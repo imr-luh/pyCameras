@@ -407,6 +407,7 @@ class Camera(CameraTemplate, ABC):
                 self.logger.debug("recording failed")
             finally:
                 if imgs is None:
+                    self.prepareRecording(requested_images=self.requested_images)
                     imgs = func_timeout(time_out, self._record)
                 return imgs
 
@@ -414,6 +415,7 @@ class Camera(CameraTemplate, ABC):
             self.logger.debug("recording failed twice")
         finally:
             if imgs is None:
+                self.prepareRecording(requested_images=self.requested_images)
                 imgs = self._record()
             if self.measurementMode:
                 imgs = self.postProcessImages(raw_images=imgs, blacklevelcorrection=False, correction_type="mean")
