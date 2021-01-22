@@ -10,8 +10,10 @@ from abc import ABC
 import numpy as np
 import threading
 import picamera
+from picamera.array import PiRGBArray, PiBayerArray
 
 # import fcntl
+from io import StringIO
 import errno
 # import mmap
 # import select
@@ -98,15 +100,16 @@ class Camera(CameraTemplate, ABC):
         Capture device representing a RaspiCam (OV5640 or IMX219)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, device_handle) -> None:
+        super(Camera, self).__init__(device_handle)
         self.logger = logging.getLogger(__name__)
         logging.basicConfig()
         if LOGGING_LEVEL is not None:
             self.logger.setLevel(LOGGING_LEVEL)
-        # self.device_handle = device_handle
-        #
-        # if self.device_handle is None:
-        #     raise ConnectionError
+        self.device_handle = device_handle
+
+        if self.device_handle is None:
+            raise ConnectionError
 
         self._actual_images: int = 0
         self.requested_images: int = 0
@@ -116,10 +119,10 @@ class Camera(CameraTemplate, ABC):
         self.PixelFormat: str = "Mono10"
         self._streamingMode: bool = False
         self.openDevice()
+        self.rawCap = PiRGBArray(self.device)
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
         self.registerFeatures()
-        self.getCapability()
         self.ImageWidth: int = 2592
         self.ImageHeight: int = 1944
         self.awb_mode = 'auto'
@@ -128,14 +131,12 @@ class Camera(CameraTemplate, ABC):
         self.contrast = 0
         self.saturation = 0
         self.vFlip, self.hFlip = False, False
-
+        # self.ImageFormat = 'yuv'
+        self.ImageFormat = 'rgb'
         self.bit_death = 10
         self.debug: bool = False
         self.gray = False
         self.analysis_mode = False
-
-
-
 
     @staticmethod
     def listDevices() -> list:
@@ -154,10 +155,9 @@ class Camera(CameraTemplate, ABC):
         TriggerMode
         """
         self.logger.debug('Registering camera features')
-        self.registerFeature('ExposureInfo', self.getExposureInfo)
         self.registerFeature('FrameRate', self.setFrameRate)
-        self.registerFeature('Capability', self.getCapability)
         self.registerFeature('MeasurementMode', self.setMeasurementMode)
+        self.registerFeature('ImageFormat', self.setImageFormat)
 
     def listFeatures(self) -> None:
         """
@@ -171,8 +171,14 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
+    def setVideoPort(self, videoPort = None) -> bool:
+        if videoPort is not None and type(videoPort) is bool:
+            self.videoPort = videoPort
+            return self.videoPort
+        else:
+            self.videoPort = self.device.CAMERA_VIDEO_PORT
 
-    def setPixelFormat(self, fmt = None ) -> str:
+    def setPixelFormat(self, fmt=None) -> str:
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -216,28 +222,18 @@ class Camera(CameraTemplate, ABC):
             self.analysis_mode = not mode
         return self.measurementMode
 
-    def getCapability(self):
-        try:
-            print("not implemented")
-
-        except Exception as e:
-            self.logger.exception(f"Failed to get sensor capability: {e}")
-            raise
-
-
     def setResolution(self, resolution: Tuple[int, int] = (2592, 1944)) -> Tuple[int, int]:
         try:
             try:
                 self.device.resolution = (resolution[0], resolution[1])
             except Exception as e:
-                self.logger(f'failed to set resolution: {resolution} with: {e}. Setting to default 2592 x 1944')
-                resoultion = (2592, 1944)
-                self.device.resolution = resoultion
+                self.logger.debug(f'failed to set resolution: {resolution} with: {e}. Setting to default 2592 x 1944')
+                self.device.resolution = (2592, 1944)
         except Exception as e:
-            self.logger(f'failed to set resolution 2592 x 1944 with {e}')
+            self.logger.debug(f'failed to set resolution 2592 x 1944 with {e}')
 
         self.ImageWidth = resolution[0]
-        self.ImageHeight = resolution[1]
+        self.ImageHeight = resolution[1]+8
         return self.ImageWidth, self.ImageHeight
     #
     # def getExposureInfo(self) -> Tuple[v4l2.v4l2_queryctrl, v4l2.v4l2_control]:
@@ -270,7 +266,7 @@ class Camera(CameraTemplate, ABC):
         """
         try:
             self.device = picamera.PiCamera()
-            self.logger.debug(f'Opened camera device: {self.device.name}')
+            self.logger.debug(f'Opened camera device: {list(self.device.exif_tags.values())[0]}')
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
             raise
@@ -322,7 +318,7 @@ class Camera(CameraTemplate, ABC):
     def prepareRecording(self, requested_images: int = 1) -> None:
         self.requested_images = requested_images
         try:
-            self.camera.use_video_port = True
+            self.setVideoPort(videoPort=True)
             data = StringIO()
 
         except Exception as e:
@@ -366,26 +362,26 @@ class Camera(CameraTemplate, ABC):
 
     def setImageFormat(self, fmt = None) -> str:
         if fmt is None:
-            return self.imageFormat
+            return self.ImageFormat
 
         if fmt in ('yuv', 'jpg', 'bmp', 'png'):
-            self.imageFormat = fmt
-            return self.imageFormat
+            self.ImageFormat = fmt
+            return self.ImageFormat
         else:
             raise ValueError('wrong format passed')
 
     def getImage(self) -> np.ndarray:
         try:
-            data = StringIO()
-            self.camera.capture(data, self.imageFormat, use_video_port=self.video_port, bayer=True)
-            data.seek(0)
-            data.truncate(0)
-            rawdata = data.getvalue()
+            self.setVideoPort(videoPort=False)
+            self.device.capture(self.rawCap, self.ImageFormat, use_video_port=self.videoPort, bayer=True)
+            self.rawCap.truncate(0)
+            img = self.rawCap.array
+
         except Exception as e:
-            self.logger(f"get Image failed with : {e}")
+            self.logger.debug(f'get Image failed with : {e}')
         if self.measurementMode:
-            return self.postProcessImages(rawdata)
-        return rawdata
+            return self.postProcessImages(img)
+        return img
 
     def blacklevelcorrection(self, uncorrected_image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
         try:
@@ -533,27 +529,24 @@ class Camera(CameraTemplate, ABC):
         """
         if microns != 0:
             try:
-                self.device.exposure = microns
+                self.device.exposure_mode = 'off'
+                self.device.shutter_speed = microns
                 self.ExposureMicrons = microns
             except Exception as e:
                 self.logger.exception(f"Failed to set exposure time: {e}")
 
-            return self.ExposureMicrons
-
-        else:
-            return self.ExposureMicrons
+        return self.ExposureMicrons
 
     def setFrameRate(self, frameRate = None):
         if frameRate is None:
             return self.FrameRate
-
         try:
-            self.FrameRate = frameRate
+            self.device.framerate = frameRate
+            return self.FrameRate
 
         except Exception as e:
-            self.logger.exception(f"Failed to set frame rate {framerate} fps: {e}")
+            self.logger.exception(f"Failed to set frame rate {frameRate} fps: {e}")
 
-        return self.FrameRate
 
     def prepare_live(self, exposure: int):
         self.setExposureMicrons(microns=exposure)
@@ -656,15 +649,16 @@ class Camera(CameraTemplate, ABC):
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
-    # available_devices = Camera.listDevices()
-    # logger.debug(f"Available Devices {available_devices}")
-    # cam = Camera(available_devices[1])
-    cam = Camera()
+    available_devices = Camera.listDevices()
+    logger.debug(f"Available Devices {available_devices}")
+    cam = Camera(available_devices[-1])
+    # cam = Camera()
 
     # cam.setTriggerMode("Out")
-    # cam.setFrameRate(frameRate=10)
+    cam.setFrameRate(frameRate=10)
     cam.setExposureMicrons(70000)
-    # cam.setPixelFormat(fmt = "RGB8")
+    cam.setResolution([2592, 1944])
+    cam.setPixelFormat(fmt = "RGB8")
     # cam.setMeasurementMode(mode=True)
 
     cam.listFeatures()
@@ -674,17 +668,17 @@ if __name__ == '__main__':
     refImage = cam.getImage()
     # ref_image = cam.postProcessImages(refImage, blacklevelcorrection=False)
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
+    cv2.imshow('test', refImage)
     i = 0
     while True:
         cam.logger.debug(f'Iteration: {i}')
         img = cam.getImage()
         # Image = cam.postProcessImages(img, blacklevelcorrection=False)
-        if np.array_equal(ref_image, Image):
+        if np.array_equal(refImage, img):
             print("images are identical")
             break
-        refImage = Image
-        cv2.imshow('test', Image)
+        refImage = img
+        cv2.imshow('test', img)
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()
