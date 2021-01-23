@@ -22,7 +22,6 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 from typing import List, Tuple, Union, BinaryIO, Dict, Any, Optional
 import platform
 
-
 LOGGING_LEVEL = logging.DEBUG
 
 
@@ -116,8 +115,8 @@ class Camera(CameraTemplate, ABC):
         self.PixelFormat: str = "Mono10"
         self._streamingMode: bool = False
         self.openDevice()
-        # self.rawCap = PiBayerArray(self.device)
-        self.rawCap = PiYUVArray(self.device)
+        self.rawCap = PiBayerArray(self.device)
+        # self.rawCap = PiYUVArray(self.device)
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
         self.registerFeatures()
@@ -169,7 +168,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def setVideoPort(self, videoPort = None) -> bool:
+    def setVideoPort(self, videoPort=None) -> bool:
         if videoPort is not None and type(videoPort) is bool:
             self.videoPort = videoPort
             return self.videoPort
@@ -220,7 +219,7 @@ class Camera(CameraTemplate, ABC):
             self.analysis_mode = not mode
         return self.measurementMode
 
-    def setResolution(self, resolution = None) -> Tuple[int, int]:
+    def setResolution(self, resolution=None) -> Tuple[int, int]:
         if resolution is None:
             try:
                 self.ImageWidth = self.device.resolution.width
@@ -236,7 +235,8 @@ class Camera(CameraTemplate, ABC):
                     else:
                         self.ImageWidth, self.ImageHeight = resolution
                 except Exception as e:
-                    self.logger.debug(f'failed to set resolution: {resolution} with: {e}. Setting to default 2592 x 1944')
+                    self.logger.debug(
+                        f'failed to set resolution: {resolution} with: {e}. Setting to default 2592 x 1944')
                     self.device.resolution = (2592, 1944)
             except Exception as e:
                 self.logger.debug(f'failed to set resolution 2592 x 1944 with {e}')
@@ -272,7 +272,7 @@ class Camera(CameraTemplate, ABC):
         else:
             self.logger.info('No Device present.')
 
-    def setTriggerMode(self, mode = None) -> str:
+    def setTriggerMode(self, mode=None) -> str:
         """
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None
@@ -325,18 +325,50 @@ class Camera(CameraTemplate, ABC):
 
             start = time.time()
             for i in range(self._actual_images):
+                with PiBayerArray(self.device) as stream:
+                    self.device.capture(stream, "bgr")
+                    img_list.append(stream.array)
+                    # img_list.append(self.rawCap.rgb_array)
+                    # self.rawCap.truncate(0)
+                    print(i)
+                    i += 1
+                    if i == self._actual_images:
+                        break
+
+            end = time.time()
+            print(end - start)
+            i = 0
+            start = time.time()
+            import io
+            stream = io.StringIO()
+            for i in range(self._actual_images):
+                self.device.capture(stream, "jpeg")
+                img_list.append(np.fromstring(stream.getvalue(), dtype = np.uint8))
+                # img_list.append(self.rawCap.rgb_array)
+                self.rawCap.truncate(0)
+                print(i)
+                i += 1
+                if i == self._actual_images:
+                    break
+
+            end = time.time()
+            print(end - start)
+            i = 0
+            start = time.time()
+            for i in range(self._actual_images):
                 self.device.capture(self.rawCap, "yuv", use_video_port = True)
                 img_list.append(self.rawCap.array)
                 # img_list.append(self.rawCap.rgb_array)
                 self.rawCap.truncate(0)
+                print(i)
                 i += 1
             end = time.time()
-            print(end-start)
+            print(end - start)
             i = 0
             # for frame in self.device.capture_continuous(self.rawCap, burst = True, format = "yuv", use_video_port = False):
             start = time.time()
             for frame in self.device.capture_continuous(self.rawCap, format = "yuv", use_video_port = True):
-            # for frame in self.device.capture_continuous(self.rawCap, format = "rgb", use_video_port = True):
+                # for frame in self.device.capture_continuous(self.rawCap, format = "rgb", use_video_port = True):
                 # grab the raw NumPy array representing the image, then initialize the timestamp
                 # and occupied/unoccupied text
 
@@ -348,7 +380,7 @@ class Camera(CameraTemplate, ABC):
                 if i == self._actual_images:
                     break
             end = time.time()
-            print(end-start)
+            print(end - start)
 
         except Exception as e:
             self.logger.debug(f'record failed with : {e}')
@@ -370,8 +402,8 @@ class Camera(CameraTemplate, ABC):
 
     def getImage(self) -> np.ndarray:
         try:
-            self.setVideoPort(videoPort=False)
-            self.device.capture(self.rawCap, self.ImageFormat, use_video_port=self.videoPort)
+            self.setVideoPort(videoPort = False)
+            self.device.capture(self.rawCap, self.ImageFormat, use_video_port = self.videoPort)
             self.rawCap.truncate(0)
             img = self.rawCap.array
 
@@ -401,18 +433,18 @@ class Camera(CameraTemplate, ABC):
 
         # Demosaicing using variable Number of Gradients
         if algorithm.lower() == "gradients":
-            demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_VNG)
+            demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2BGR_VNG)
 
         # Demosaicing using Edge-Aware Demosaicing
         elif algorithm.lower() == "edge":
-            demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_EA)
+            demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2BGR_EA)
 
         else:
             # Demosaicing using bilinear interpolation
             if self.gray:
-                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2GRAY)
+                demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2GRAY)
             else:
-                demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2RGB)
+                demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2RGB)
 
         demosaic_img = np.clip(demosaic_img, 0, max_pix_val)
         norm_image = demosaic_img.copy() / max_pix_val
@@ -492,11 +524,8 @@ class Camera(CameraTemplate, ABC):
 
         return self.FrameRate
 
-
-
-
     def prepare_live(self, exposure: int):
-        self.setExposureMicrons(microns=exposure)
+        self.setExposureMicrons(microns = exposure)
         self.logger.info(f"Live View Exposure time : {exposure}µs")
 
     def __del__(self) -> None:
@@ -508,7 +537,6 @@ class Camera(CameraTemplate, ABC):
 
         if not self.device:
             del self.device
-
 
     def checkFirstPhase(self, images: List[np.ndarray]) -> int:
         ref_image = images[0]
@@ -547,16 +575,14 @@ if __name__ == '__main__':
 
     time.sleep(0.005)
 
-
     # cam.setResolution([640, 480])
     cam.setResolution([1296, 730])
     # cam.setResolution([1296, 972])
     # cam.setResolution([2592, 1944])
     # cam.setPixelFormat(fmt = "RGB8")
     time.sleep(0.005)
-    print(cam.setFrameRate(30))
+    print(cam.setFrameRate(10))
     # print(cam.setFrameRate(30))
-
 
     # cam.setMeasurementMode(mode=True)
 
@@ -596,17 +622,16 @@ if __name__ == '__main__':
     Images = cam.record()
     print(len(Images))
     end = time.time()
-    print(f"recording took {end-start}")
+    print(f"recording took {end - start}")
 
-
-        # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-        # for image in Images:
-        #     # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        #     cv2.imshow('test', image)
-        #     key = cv2.waitKey(1)
-        #     if key & 0xFF == ord('q'):
-        #         cv2.destroyAllWindows()
-        #         raise StopIteration
+    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
+    # for image in Images:
+    #     # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #     cv2.imshow('test', image)
+    #     key = cv2.waitKey(1)
+    #     if key & 0xFF == ord('q'):
+    #         cv2.destroyAllWindows()
+    #         raise StopIteration
 
     del cam
     #########################################################
