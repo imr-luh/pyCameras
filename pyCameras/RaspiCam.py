@@ -116,6 +116,7 @@ class Camera(CameraTemplate, ABC):
         self.PixelFormat: str = "Mono10"
         self._streamingMode: bool = False
         self.openDevice()
+        # self.rawCap = PiBayerArray(self.device)
         self.rawCap = PiYUVArray(self.device)
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
@@ -302,7 +303,7 @@ class Camera(CameraTemplate, ABC):
     def setImageFormat(self, fmt=None) -> str:
         if fmt is None:
             return self.ImageFormat
-        elif fmt in ('yuv', 'bmp', 'png'):
+        elif fmt in ('yuv', 'bmp', 'png', 'jpg'):
             self.ImageFormat = fmt
         else:
             raise ValueError('wrong format passed')
@@ -321,9 +322,21 @@ class Camera(CameraTemplate, ABC):
         try:
             img_list = list()
             i = 0
-            import io
-            stream = io.BytesIO()
-            for frame in self.device.capture_continuous(self.rawCap, burst = True, format = "yuv", use_video_port = False):
+
+            start = time.time()
+            for i in range(self._actual_images):
+                self.device.capture(self.rawCap, "yuv", use_video_port = True)
+                img_list.append(self.rawCap.array)
+                # img_list.append(self.rawCap.rgb_array)
+                self.rawCap.truncate(0)
+                i += 1
+            end = time.time()
+            print(end-start)
+            i = 0
+            # for frame in self.device.capture_continuous(self.rawCap, burst = True, format = "yuv", use_video_port = False):
+            start = time.time()
+            for frame in self.device.capture_continuous(self.rawCap, format = "yuv", use_video_port = True):
+            # for frame in self.device.capture_continuous(self.rawCap, format = "rgb", use_video_port = True):
                 # grab the raw NumPy array representing the image, then initialize the timestamp
                 # and occupied/unoccupied text
 
@@ -334,6 +347,8 @@ class Camera(CameraTemplate, ABC):
                 i += 1
                 if i == self._actual_images:
                     break
+            end = time.time()
+            print(end-start)
 
         except Exception as e:
             self.logger.debug(f'record failed with : {e}')
@@ -471,6 +486,7 @@ class Camera(CameraTemplate, ABC):
         else:
             try:
                 self.device.framerate = frameRate
+                self.FrameRate = frameRate
             except Exception as e:
                 self.logger.exception(f"Failed to set frame rate {frameRate} fps: {e}")
 
@@ -528,15 +544,18 @@ if __name__ == '__main__':
     # cam.setTriggerMode("Out")
     # cam.setFrameRate(frameRate=30)
     # cam.setExposureMicrons(30000)
-    import time
+
     time.sleep(0.005)
 
 
-    cam.setResolution([1296, 972])
+    # cam.setResolution([640, 480])
+    cam.setResolution([1296, 730])
+    # cam.setResolution([1296, 972])
     # cam.setResolution([2592, 1944])
     # cam.setPixelFormat(fmt = "RGB8")
     time.sleep(0.005)
     print(cam.setFrameRate(30))
+    # print(cam.setFrameRate(30))
 
 
     # cam.setMeasurementMode(mode=True)
