@@ -41,11 +41,9 @@ class Controller(ControllerTemplate):
         self.logger.info("searching camera devices")
 
         try:
-            # cam = picamera.PiCamera()
-            # device_input = str(cam.revision)
-            device_input = 'picam'
+            cam = picamera.PiCamera()
+            device_input = str(cam.revision)
             self.device_handles.append(device_input)
-            # cam.close()
             return 1
 
         except Exception as e:
@@ -244,7 +242,7 @@ class Camera(CameraTemplate, ABC):
         """
         try:
             self.device = picamera.PiCamera()
-            # self.logger.debug(f'Opened camera device: {self.device.revision}')
+            self.logger.debug(f'Opened camera device: {self.device.revision}')
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
             raise
