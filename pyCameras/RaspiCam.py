@@ -44,6 +44,7 @@ class Controller(ControllerTemplate):
             cam = picamera.PiCamera()
             device_input = str(cam.revision)
             self.device_handles.append(device_input)
+            cam.close()
             return 1
 
         except Exception as e:
@@ -111,6 +112,7 @@ class Camera(CameraTemplate, ABC):
         self.openDevice()
         self.rawCap = PiYUVArray(self.device)
         self.ImageFormat = 'yuv'
+        self.use_video_port = True
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
         self.registerFeatures()
@@ -294,8 +296,18 @@ class Camera(CameraTemplate, ABC):
     def setImageFormat(self, fmt=None) -> str:
         if fmt is None:
             return self.ImageFormat
-        elif fmt in ('yuv', 'bmp', 'png', 'jpg'):
-            self.ImageFormat = fmt
+        elif fmt.lower() == "bgr" or fmt.lower() =="rgb":
+            self.ImageFormat = "bgr"
+            self.rawCap = PiRGBArray(self.device)
+
+        elif fmt.lower() == "yuv":
+            self.ImageFormat = "yuv"
+            self.rawCap = PiYUVArray(self.device)
+
+        elif fmt.lower() == "jpeg":
+            self.ImageFormat = "jpeg"
+            self.rawCap = PiBayerArray(self.device)
+
         else:
             raise ValueError('wrong format passed')
         return self.ImageFormat
@@ -306,55 +318,48 @@ class Camera(CameraTemplate, ABC):
 
     def record(self) -> List[np.ndarray]:
         try:
-            use_video_port = True
-            # format = "bgr"
-            format = "yuv"
-            # format = "jpeg"
-            # self.rawCap = PiRGBArray(self.device)
-            self.rawCap = PiYUVArray(self.device)
-            # self.rawCap = PiBayerArray(self.device)
-
             img_list = list()
             i = 0
             start = time.time()
             for i in range(self._actual_images):
-                    self.device.capture(self.rawCap, format, use_video_port=use_video_port)
-                    img_list.append(self.rawCap.array)
-                    self.rawCap.truncate(0)
-                    i += 1
-                    if i == self._actual_images:
-                        break
-
-            end = time.time()
-            print(f"capture of {format}: {end - start}")
-
-            i = 0
-            img_list = list()
-            stream = io.BytesIO()
-            start = time.time()
-            for i in range(self._actual_images):
-                self.device.capture(stream, format, use_video_port=use_video_port)
-                img_list.append(np.frombuffer(stream.getvalue(), dtype=np.uint8))
-                stream.truncate(0)
-                i += 1
-                if i == self._actual_images:
-                    break
-
-            end = time.time()
-            print(f"byte stuff: {end - start}")
-
-            i = 0
-            img_list = list()
-            start = time.time()
-            for frame in self.device.capture_continuous(self.rawCap, format=format, use_video_port=use_video_port):
-                img_list.append(frame.array)
-                # clear the stream in preparation for the next frame
+                self.device.capture(self.rawCap, self.ImageFormat, use_video_port=self.use_video_port)
+                img_list.append(self.rawCap.array)
                 self.rawCap.truncate(0)
                 i += 1
                 if i == self._actual_images:
                     break
+
             end = time.time()
-            print(f"capture continuous of {format}: {end - start}")
+            print(f"capture of {self.ImageFormat}: {end - start}")
+
+            # i = 0
+            # img_list = list()
+            # stream = io.BytesIO()
+            # start = time.time()
+            # for i in range(self._actual_images):
+            #     self.device.capture(stream, self.ImageFormat, use_video_port=self.use_video_port)
+            #     img_list.append(np.frombuffer(stream.getvalue(), dtype=np.uint8))
+            #     stream.truncate(0)
+            #     i += 1
+            #     if i == self._actual_images:
+            #         break
+            #
+            # end = time.time()
+            # print(f"byte stuff {self.ImageFormat}: {end - start}")
+            #
+            # i = 0
+            # img_list = list()
+            # start = time.time()
+            # for frame in self.device.capture_continuous(self.rawCap, format=self.ImageFormat,
+            #                                             use_video_port=self.use_video_port):
+            #     img_list.append(frame.array)
+            #     # clear the stream in preparation for the next frame
+            #     self.rawCap.truncate(0)
+            #     i += 1
+            #     if i == self._actual_images:
+            #         break
+            # end = time.time()
+            # print(f"capture continuous of {self.ImageFormat}: {end - start}")
 
         except Exception as e:
             self.logger.debug(f'record failed with : {e}')
