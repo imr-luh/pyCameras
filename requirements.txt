@@ -1,13 +1,17 @@
 # External libs
 PyYaml
-numpy
+numpy~=1.16.2
 scipy
 opencv-python
 svgwrite
 PyQt5
-v4l2
+v4l2~=0.2
 scikit-image
 colour_demosaicing
-matplotlib
+matplotlib~=3.0.2
 func_timeout
 
+
+setuptools~=40.8.0
+pyCameras~=0.0.1
+picamera~=1.10

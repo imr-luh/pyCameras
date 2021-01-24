@@ -8,19 +8,14 @@ __status__ = "Development"
 import logging
 from abc import ABC
 import numpy as np
-import threading
 import picamera
-from picamera.array import PiRGBArray, PiBayerArray, PiYUVArray, PiYUVAnalysis
-
-import errno
+from picamera.array import PiRGBArray, PiBayerArray, PiYUVArray
+import io
 import cv2
-import matplotlib.pyplot as plt
-import os
 import time
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
-from typing import List, Tuple, Union, BinaryIO, Dict, Any, Optional
-import platform
+from typing import List, Tuple, Union, Dict, Any, Optional
 
 LOGGING_LEVEL = logging.DEBUG
 
@@ -46,10 +41,11 @@ class Controller(ControllerTemplate):
         self.logger.info("searching camera devices")
 
         try:
-            cam = picamera.PiCamera()
-            device_input = str(cam.revision)
+            # cam = picamera.PiCamera()
+            # device_input = str(cam.revision)
+            device_input = 'picam'
             self.device_handles.append(device_input)
-            cam.close()
+            # cam.close()
             return 1
 
         except Exception as e:
@@ -115,8 +111,8 @@ class Camera(CameraTemplate, ABC):
         self.PixelFormat: str = "Mono10"
         self._streamingMode: bool = False
         self.openDevice()
-        self.rawCap = PiBayerArray(self.device)
-        # self.rawCap = PiYUVArray(self.device)
+        self.rawCap = PiYUVArray(self.device)
+        self.ImageFormat = 'yuv'
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
         self.registerFeatures()
@@ -128,12 +124,13 @@ class Camera(CameraTemplate, ABC):
         self.contrast = 0
         self.saturation = 0
         self.vFlip, self.hFlip = False, False
-        self.ImageFormat = 'yuv'
-        # self.ImageFormat = 'rgb'
         self.bit_death = 10
         self.debug: bool = False
         self.gray = False
         self.analysis_mode = False
+        # self.device.flash_mode = 'on'
+
+        # https: // picamera.readthedocs.io / en / release - 1.13 / recipes2.html  # using-a-flash-with-the-camera
 
     @staticmethod
     def listDevices() -> list:
@@ -230,10 +227,6 @@ class Camera(CameraTemplate, ABC):
             try:
                 try:
                     self.device.resolution = resolution
-                    if [self.device.resolution.width, self.device.resolution.height] != resolution:
-                        raise Exception
-                    else:
-                        self.ImageWidth, self.ImageHeight = resolution
                 except Exception as e:
                     self.logger.debug(
                         f'failed to set resolution: {resolution} with: {e}. Setting to default 2592 x 1944')
@@ -251,7 +244,7 @@ class Camera(CameraTemplate, ABC):
         """
         try:
             self.device = picamera.PiCamera()
-            self.logger.debug(f'Opened camera device: {self.device.revision}')
+            # self.logger.debug(f'Opened camera device: {self.device.revision}')
         except Exception as e:
             self.logger.exception(f"Failed to open the camera device: {e}")
             raise
@@ -312,75 +305,58 @@ class Camera(CameraTemplate, ABC):
     def prepareRecording(self, requested_images: int = 1) -> None:
         self.requested_images = requested_images
         self._actual_images = 2 * requested_images
-        # try:
-        #     self.setVideoPort(videoPort=True)
-        #
-        # except Exception as e:
-        #     self.logger.exception(f"Failed to prepare recording: {e}")
 
     def record(self) -> List[np.ndarray]:
         try:
+            use_video_port = True
+            # format = "bgr"
+            format = "yuv"
+            # format = "jpeg"
+            # self.rawCap = PiRGBArray(self.device)
+            self.rawCap = PiYUVArray(self.device)
+            # self.rawCap = PiBayerArray(self.device)
+
             img_list = list()
             i = 0
-
             start = time.time()
             for i in range(self._actual_images):
-                with PiBayerArray(self.device) as stream:
-                    self.device.capture(stream, "bgr")
-                    img_list.append(stream.array)
-                    # img_list.append(self.rawCap.rgb_array)
-                    # self.rawCap.truncate(0)
-                    print(i)
+                    self.device.capture(self.rawCap, format, use_video_port=use_video_port)
+                    img_list.append(self.rawCap.array)
+                    self.rawCap.truncate(0)
                     i += 1
                     if i == self._actual_images:
                         break
 
             end = time.time()
-            print(end - start)
+            print(f"capture of {format}: {end - start}")
+
             i = 0
+            img_list = list()
+            stream = io.BytesIO()
             start = time.time()
-            import io
-            stream = io.StringIO()
             for i in range(self._actual_images):
-                self.device.capture(stream, "jpeg")
-                img_list.append(np.fromstring(stream.getvalue(), dtype = np.uint8))
-                # img_list.append(self.rawCap.rgb_array)
-                self.rawCap.truncate(0)
-                print(i)
+                self.device.capture(stream, format, use_video_port=use_video_port)
+                img_list.append(np.frombuffer(stream.getvalue(), dtype=np.uint8))
+                stream.truncate(0)
                 i += 1
                 if i == self._actual_images:
                     break
 
             end = time.time()
-            print(end - start)
-            i = 0
-            start = time.time()
-            for i in range(self._actual_images):
-                self.device.capture(self.rawCap, "yuv", use_video_port = True)
-                img_list.append(self.rawCap.array)
-                # img_list.append(self.rawCap.rgb_array)
-                self.rawCap.truncate(0)
-                print(i)
-                i += 1
-            end = time.time()
-            print(end - start)
-            i = 0
-            # for frame in self.device.capture_continuous(self.rawCap, burst = True, format = "yuv", use_video_port = False):
-            start = time.time()
-            for frame in self.device.capture_continuous(self.rawCap, format = "yuv", use_video_port = True):
-                # for frame in self.device.capture_continuous(self.rawCap, format = "rgb", use_video_port = True):
-                # grab the raw NumPy array representing the image, then initialize the timestamp
-                # and occupied/unoccupied text
+            print(f"byte stuff: {end - start}")
 
+            i = 0
+            img_list = list()
+            start = time.time()
+            for frame in self.device.capture_continuous(self.rawCap, format=format, use_video_port=use_video_port):
                 img_list.append(frame.array)
                 # clear the stream in preparation for the next frame
                 self.rawCap.truncate(0)
-                print(i)
                 i += 1
                 if i == self._actual_images:
                     break
             end = time.time()
-            print(end - start)
+            print(f"capture continuous of {format}: {end - start}")
 
         except Exception as e:
             self.logger.debug(f'record failed with : {e}')
@@ -512,6 +488,44 @@ class Camera(CameraTemplate, ABC):
 
         return self.ExposureMicrons
 
+    def setPixelFormat(self, fmt=None):
+        """
+        Set the image format to the passed setting or read the current format
+        by passing None
+
+        Parameters
+        ----------
+        fmt : str
+            String describing the desired image format (e.g. "mono8"), or None
+            to read the current image format. Check camera technical manual for available formats,
+            may differ from model to model.
+
+        Returns
+        -------
+        fmt : str
+            The image format after applying the passed value
+        """
+
+        if fmt is not None:
+            self.logger.debug(f'Setting <PixelFormat> to {fmt}')
+            if fmt.lower() == "rgb8":
+                self.gray = False
+                self.bit_death = 8
+            elif fmt.lower() == "mono8":
+                self.gray = True
+                self.bit_death = 8
+            elif fmt.lower() == "rgb10":
+                self.gray = False
+                self.bit_death = 10
+            elif fmt.lower() == "mono10":
+                self.gray = True
+                self.bit_death = 10
+            else:
+                raise ValueError(f"Format unknown {fmt}")
+
+            self.PixelFormat = fmt
+        return self.PixelFormat
+
     def setFrameRate(self, frameRate=None):
         if frameRate is None:
             self.FrameRate = self.device.framerate
@@ -573,20 +587,17 @@ if __name__ == '__main__':
     # cam.setFrameRate(frameRate=30)
     # cam.setExposureMicrons(30000)
 
-    time.sleep(0.005)
-
     # cam.setResolution([640, 480])
     cam.setResolution([1296, 730])
     # cam.setResolution([1296, 972])
     # cam.setResolution([2592, 1944])
     # cam.setPixelFormat(fmt = "RGB8")
-    time.sleep(0.005)
-    print(cam.setFrameRate(10))
+    print(f"framerate: {cam.setFrameRate(10)}")
     # print(cam.setFrameRate(30))
 
     # cam.setMeasurementMode(mode=True)
 
-    cam.listFeatures()
+    # cam.listFeatures()
 
     ##########################################################
     # # Code for live view
@@ -614,7 +625,7 @@ if __name__ == '__main__':
 
     #########################################################
     # Code for the image acquisition of x Frames
-    expectedImages = 17
+    expectedImages = 20
     start = time.time()
 
     # while True:
