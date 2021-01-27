@@ -1,0 +1,15 @@
+*.pyc
+*.pem
+*.key
+*.bak
+*.pkl
+*.project
+*.pydevproject
+*.prefs
+*.log
+*calibration_*
+.settings/*
+**/*.prefs
+build
+*.so
+*.jpg

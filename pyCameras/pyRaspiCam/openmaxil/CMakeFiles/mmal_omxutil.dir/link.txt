@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC   -shared -Wl,-soname,libmmal_omxutil.so -o libmmal_omxutil.so CMakeFiles/mmal_omxutil.dir/mmalomx_util_params.o CMakeFiles/mmal_omxutil.dir/mmalomx_util_params_audio.o CMakeFiles/mmal_omxutil.dir/mmalomx_util_params_video.o CMakeFiles/mmal_omxutil.dir/mmalomx_util_params_camera.o CMakeFiles/mmal_omxutil.dir/mmalomx_util_params_misc.o 

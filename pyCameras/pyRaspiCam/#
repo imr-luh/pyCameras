@@ -1,0 +1,16 @@
+
+
+import raspiCam
+import numpy as np
+import time
+
+arr = np.zeros((3,3), dtype = np.ubyte)
+
+
+raspiCam.initialize()
+
+print "initialized"
+raspiCam.getImage(arr)
+
+
+time.sleep(3)
