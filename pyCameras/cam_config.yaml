@@ -1,0 +1,8 @@
+id: /path/to/your/sample/images/,  # id : used to identify a specific camera. May be a mac address, ip, ...
+class: pyCameras.cameraDummy.Camera, # class : Specifies the used camera implementation from pyCameras.
+
+test_settings: # settings : subset of parameters (will be set during test).
+  {exposure: [8500, 100, 200000, 'off'],
+   triggerMode: ['in' , 'out', 'off'],
+   resolution: [(1920,1080) , (off,off), 'off'],
+   pixelFormat: ['mono10', 'mono8', 'rgb8', 'rgb10']}
