@@ -105,8 +105,9 @@ class Camera(CameraTemplate):
     def getImage(self, *args, **kwargs):
         try:
             cvLoadFlags = cv2.IMREAD_GRAYSCALE
+            self._expectedImages = 1
             self._loadImages(self._imageDirs, cvLoadFlags=cvLoadFlags)
-            img = self._images[self._curIndex] #todo: edit this case
+            img = self._images[0] #todo: edit this case
         except Exception as e:
             raise NotImplementedError(f"hier nichts live {e}")
         # self._curIndex = (self._curIndex+1) % len(self._images)
