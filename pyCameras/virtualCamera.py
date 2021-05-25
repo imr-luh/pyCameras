@@ -59,7 +59,9 @@ class Camera(CameraTemplate):
         self._gain = None
         self._exposure = None
         self._isOpen = True
-        self.multipleMeasurements = False
+        self.multipleMeasurements = None
+        self.PixelFormat = "RGB8"
+        self.registerFeatures()
 
     def registerFeatures(self) -> None:
         """
@@ -69,7 +71,7 @@ class Camera(CameraTemplate):
         """
         self.logger.debug('Registering camera features')
         self.registerFeature('multiple_measurements', self.setMultipleMeasurements)
-        self.registerFeature('path', self.setPath)
+        self.registerFeature('img_path', self.setImagePath)
 
     def setMultipleMeasurements(self, multipleMeasurements=None) -> bool:
         if multipleMeasurements is None:
@@ -78,11 +80,13 @@ class Camera(CameraTemplate):
             self.multipleMeasurements = multipleMeasurements
             return self.multipleMeasurements
 
-    def setPath(self, pathList=None):
-        if pathList is None:
+    def setImagePath(self, pathDir=None):
+        if pathDir is None:
             return self._imageDirs
         else:
-            self._imageDirs = pathList
+            self._imageDirs = pathDir
+            self.availableDirs = natsorted([entry for entry in os.listdir(self._imageDirs) if
+                             os.path.isdir(os.path.join(self._imageDirs, entry))])
             return self._imageDirs
 
     @staticmethod
@@ -101,7 +105,7 @@ class Camera(CameraTemplate):
     def getImage(self, *args, **kwargs):
         try:
             cvLoadFlags = cv2.IMREAD_GRAYSCALE
-            self._loadImages(self._imageDirs[self._curIndex], cvLoadFlags=cvLoadFlags)
+            self._loadImages(self._imageDirs, cvLoadFlags=cvLoadFlags)
             img = self._images[self._curIndex] #todo: edit this case
         except Exception as e:
             raise NotImplementedError(f"hier nichts live {e}")
@@ -109,11 +113,17 @@ class Camera(CameraTemplate):
         return img
 
     def prepareRecording(self, num):
+        self._images = list()
         self._expectedImages = num
         if self.multipleMeasurements:
-            self.curDir = self._imageDirs[self._curIndex] if os.path.exists(self._imageDirs[self._curIndex]) else None
+            if len(self.availableDirs) > self._curIndex:
+                buffer_dir = self.availableDirs[self._curIndex] if os.path.exists(os.path.join(self._imageDirs, self.availableDirs[self._curIndex])) else None
+                self.curDir = os.path.join(self._imageDirs, buffer_dir) if buffer_dir is not None else None
+            else:
+                self.logger.debug("reached end of List, now returning noise images !!!")
+                self.curDir = None
         else:
-            self.curDir = self._imageDirs[0] if os.path.exists(self._imageDirs[0]) else None
+            self.curDir = self._imageDirs if os.path.exists(self._imageDirs) else None
 
     def record(self):
         try:
@@ -145,12 +155,12 @@ class Camera(CameraTemplate):
 
         return self._gain
 
-    def setFormat(self, fmt=None):
+    def setPixelFormat(self, fmt=None):
         if fmt is None:
-            return self._format
-        self._format = fmt
+            return self.PixelFormat
+        self.PixelFormat = fmt
 
-        return self._format
+        return self.PixelFormat
 
     def setTriggerMode(self, mode=None):
         if mode is None:
@@ -205,7 +215,7 @@ class Camera(CameraTemplate):
                     self.logger.info(
                         "No valid image path was specified. Using random image instead (Noisy Image).")
                     self._images = list()
-                    for i in range(2):
+                    for i in range(self._expectedImages):
                         noisy_img = np.random.random(self.resolution)
                         noisy_img = cv2.putText(noisy_img,
                                                 "No images found in path",
@@ -218,7 +228,7 @@ class Camera(CameraTemplate):
             else:
                 self.logger.info("No valid image path was specified. Using random image instead (Noisy Image).")
                 self._images = list()
-                for i in range(2):
+                for i in range(self._expectedImages):
                     noisy_img = np.random.random(self.resolution)
                     noisy_img = cv2.putText(noisy_img, "Invalid path",
                                             (10, self.resolution[1] // 2),
@@ -230,8 +240,7 @@ class Camera(CameraTemplate):
         else:
             self.logger.info(
                 "No valid image path was specified. Using random image instead (Noisy Image).")
-            self._images = [np.random.random(self.resolution),
-                            np.random.random(self.resolution)]
+            self._images = [np.random.random(self.resolution)] * self._expectedImages
 
         # Set resolution to image resolution (all images should have the same resolution)
         self.setResolution(self._images[0].shape[0:2])
