@@ -80,8 +80,7 @@ class ControllerTemplate(object):
         raise NotImplementedError
 
     def __del__(self):
-        self.logger.debug('Deleting cameracontroller {self}'
-                          ''.format(self=self))
+        self.logger.debug('Deleting cameracontroller {self}'.format(self=self))
         self.closeController()
 
     def __repr__(self):

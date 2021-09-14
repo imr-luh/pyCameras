@@ -879,7 +879,6 @@ class Camera(CameraTemplate):
     def __repr__(self):
         return repr(self.device)
 
-
 if __name__ == '__main__':
     import logging
     import cv2 as cv
@@ -902,28 +901,29 @@ if __name__ == '__main__':
     # cam_device = contr.getDevice('DEV_000F314D941E')
 
     # Test auto exposure
-    cam_device = Camera('DEV_000F314E2C01')
+    cam_device = Camera('DEV_000F314E5F03')
 
-    cam_device.exposure = 400000
+    cam_device.exposure = 600000
     print("Before: ", cam_device.exposure)
-    exposure = cam_device.autoExposure()
-    print("After: ", cam_device.exposure)
+    # exposure = cam_device.autoExposure()
+    # print("After: ", cam_device.exposure)
 
     # Listing features of device
     if bListFeatures:
         cam_device.listFeatures()
 
-    # Get an image
-    image = cam_device.getImage()
-    cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
-    cv.resizeWindow('Captured image', 1000, 1000)
-    cv.imshow('Captured image', image)
-    cv.waitKey()
+    # image = cam_device.getImage()
+    # cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
+    # cv.resizeWindow('Captured image', 1000, 1000)
+    # cv.imshow('Captured image', image)
+    # cv.waitKey()
 
     if bLiveView:
         cam_device._liveView()
 
-    images = cam_device.getImages(10)
+    number_of_images = 10
+    print("Capturing {0} images".format(number_of_images))
+    images = cam_device.getImages(number_of_images)
     print(len(images))
     for _, img in enumerate(images):
         print('Showing image {i}'.format(i=_))
