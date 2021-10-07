@@ -2,7 +2,7 @@ import logging
 
 import cv2
 import numpy as np
-from harvesters.core import Harvester, LoadLibraryException
+from harvesters.core import Harvester, PayloadUnknown
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
@@ -39,11 +39,11 @@ class Controller(ControllerTemplate):
         self.logger.debug('Starting JAI Camera Controller')
 
         try:
-            self._harverster.add_cti_file(CTI_FILE)
-        except LoadLibraryException:
-            raise LoadLibraryException("Installation path differs from default "
-                                       "value. Change constant CTI_FILE to "
-                                       "correct file path.")
+            self._harverster.add_file(CTI_FILE)
+        except FileNotFoundError:
+            raise FileNotFoundError("Installation path differs from default "
+                                    "value. Change constant CTI_FILE to "
+                                    "correct file path.")
 
     def updateDeviceHandles(self):
         """
@@ -109,7 +109,7 @@ class Camera(CameraTemplate):
     JAI Camera implementation based on
     Harvester(https://github.com/genicam/harvesters)
     """
-    def __init__(self, device_handle):
+    def __init__(self, device_handle, harvester=None):
         """
         Implementation of the JAI camera device
 
@@ -119,9 +119,10 @@ class Camera(CameraTemplate):
             Unique camera device handle to identify the camera
         """
         # Use the same Harvester core if it is already created
-        if not Controller.harvester_instance:
-            Controller.harvester_instance = Harvester()
-        self._harverster = Controller.harvester_instance
+        if harvester is None:
+            self._harverster = Harvester()
+        else:
+            self._harverster = harvester
 
         self.device_handle = device_handle
 
@@ -259,7 +260,7 @@ class Camera(CameraTemplate):
                                   "".format(ind=i,
                                             name=device_info.model))
                 self.device = self._harverster.create_image_acquirer(i)
-                self.node_map = self.device.device.node_map
+                self.node_map = self.device.remote_device.node_map
 
     def closeDevice(self):
         """
@@ -296,12 +297,23 @@ class Camera(CameraTemplate):
         self.logger.debug('Creating Buffer and starting acquisition')
         self.device.start_image_acquisition()
 
-        with self.device.fetch_buffer() as buffer:
-            imgData = np.ndarray(buffer=buffer.payload.components[0].data,
-                                 dtype=np.uint8,
-                                 shape=((buffer.payload.components[0].height,
-                                         buffer.payload.components[0].width))).copy()
-            imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
+        # 3 Tries per image
+        tries = 0
+        while tries < 3:
+            with self.device.fetch_buffer() as buffer:
+                if isinstance(buffer.payload, PayloadUnknown):
+                    tries += 1
+                    continue
+                else:
+                    imgData = np.ndarray(buffer=buffer.payload.components[0].data,
+                                         dtype=np.uint8,
+                                         shape=((buffer.payload.components[0].height,
+                                                 buffer.payload.components[0].width))).copy()
+                    imgData = cv2.cvtColor(imgData, cv2.COLOR_BAYER_RG2RGB)
+                    break
+
+        if tries >= 3:
+            raise TimeoutError("Image acquisiton failed, after multiple tries.")
 
         self.device.stop_image_acquisition()
 
