@@ -23,7 +23,6 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 from typing import List, Tuple, Union, BinaryIO, Dict, Any, Optional
 import platform
 
-
 LOGGING_LEVEL = logging.DEBUG
 
 
@@ -122,6 +121,7 @@ class Camera(CameraTemplate, ABC):
         self.FrameRate: int = 10
         self.TriggerMode: str = "out"
         self.PixelFormat: str = "Mono10"
+        self.singleRGBChanel: bool = True
         self.buffers: List[object] = []
         self.buf: v4l2.v4l2_buffer = v4l2.v4l2_buffer()
         self.buf_type: int = 0
@@ -173,7 +173,7 @@ class Camera(CameraTemplate, ABC):
         except Exception as e:
             self.logger.exception(f'Failed to get feature names: {e}')
 
-    def setPixelFormat(self, fmt = None ) -> str:
+    def setPixelFormat(self, fmt=None) -> str:
         """
         Set the image format to the passed setting or read the current format
         by passing None
@@ -232,8 +232,12 @@ class Camera(CameraTemplate, ABC):
         fmt = v4l2.v4l2_format()
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
         fcntl.ioctl(self.device, int(v4l2.VIDIOC_G_FMT), fmt)  # get current settings
-        self.ImageWidth = fmt.fmt.pix.width
-        self.ImageHeight = fmt.fmt.pix.height
+        if self.singleRGBChanel:
+            self.ImageHeight = fmt.fmt.pix.height / 4
+            self.ImageWidth = fmt.fmt.pix.width / 4
+        else:
+            self.ImageHeight = fmt.fmt.pix.height
+            self.ImageWidth = fmt.fmt.pix.width
         return self.ImageWidth, self.ImageHeight
 
     def getExposureInfo(self) -> Tuple[v4l2.v4l2_queryctrl, v4l2.v4l2_control]:
@@ -306,7 +310,7 @@ class Camera(CameraTemplate, ABC):
         else:
             self.logger.info('No Device present.')
 
-    def setTriggerMode(self, mode = None) -> str:
+    def setTriggerMode(self, mode=None) -> str:
         """
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None
@@ -439,7 +443,7 @@ class Camera(CameraTemplate, ABC):
                     elif image_counter % 2 == 0 and not self.usb3:
                         self.cameraImages.append(raw_images[i])
                     elif image_counter % 2 == 0 and self.usb3:
-                        self.cameraImages.append(raw_images[i+1])
+                        self.cameraImages.append(raw_images[i + 1])
                     image_counter += 1
 
             else:
@@ -617,7 +621,6 @@ class Camera(CameraTemplate, ABC):
 
         return image_array
 
-
     def blacklevelcorrection(self, uncorrected_image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
         try:
             load_img = False
@@ -630,7 +633,7 @@ class Camera(CameraTemplate, ABC):
                     print(f"path {path} not found")
             else:
                 black_level_image = np.ones_like(uncorrected_image) * 60
-            max_pix_val = 2**self.bit_death - 1
+            max_pix_val = 2 ** self.bit_death - 1
             saturation_image = np.ones_like(uncorrected_image) * max_pix_val
             if correction_type.lower() == "pixelwise":
                 corrected_image = np.subtract(uncorrected_image, black_level_image).astype(np.int16)
@@ -709,16 +712,19 @@ class Camera(CameraTemplate, ABC):
 
     def postProcessImages(self, raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray],
                           blacklevelcorrection: bool = False, algorithm: str = 'interpolation',
-                          correction_type: Optional[str] = 'mean') -> Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
+                          correction_type: Optional[str] = 'mean') -> Union[
+        List[np.ndarray], Dict[Any, Any], np.ndarray]:
         try:
             img_list: list = []
             if isinstance(raw_images, list):
                 for raw_image in raw_images:
-
                     if blacklevelcorrection:
                         raw_image = self.blacklevelcorrection(uncorrected_image=raw_image,
-                                                                correction_type=correction_type)
-                    image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
+                                                              correction_type=correction_type)
+                    if self.singleRGBChanel:
+                        image = self.splitChannels(img=raw_image)
+                    else:
+                        image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
                     img_list.append(image)
                 return img_list
 
@@ -728,19 +734,24 @@ class Camera(CameraTemplate, ABC):
                     for raw_image in v:
                         if blacklevelcorrection:
                             raw_image = self.blacklevelcorrection(uncorrected_image=raw_image,
-                                                                    correction_type=correction_type)
-                        image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
+                                                                  correction_type=correction_type)
+                        if self.singleRGBChanel:
+                            image = self.splitChannels(img=raw_image)
+                        else:
+                            image = self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
                         img_list.append(image)
                     img_dict[k] = img_list
                 return img_dict
 
             else:
                 if blacklevelcorrection:
-                    raw_image = self.blacklevelcorrection(uncorrected_image=raw_images,
-                                                            correction_type=correction_type)
+                    raw_images = self.blacklevelcorrection(uncorrected_image=raw_images,
+                                                           correction_type=correction_type)
+                if self.singleRGBChanel:
+                    image = self.splitChannels(img=raw_images)
                 else:
-                    raw_image = raw_images
-                return self.demosaicImage(raw_image=raw_image, algorithm=algorithm)
+                    image = self.demosaicImage(raw_image=raw_images, algorithm=algorithm)
+                return image
 
         except Exception as e:
             print(f"function call prost processing failed {e}")
@@ -800,7 +811,7 @@ class Camera(CameraTemplate, ABC):
         else:
             return self.ExposureMicrons
 
-    def setFrameRate(self, frameRate = None):
+    def setFrameRate(self, frameRate=None):
         if frameRate is None:
             return self.FrameRate
 
@@ -830,7 +841,7 @@ class Camera(CameraTemplate, ABC):
                 self.FrameRate = frameRate
 
         except Exception as e:
-            self.logger.exception(f"Failed to set frame rate {framerate} fps: {e}")
+            self.logger.exception(f"Failed to set frame rate {frameRate} fps: {e}")
 
     def prepare_live(self, exposure: int):
         if self._streamingMode:
@@ -911,6 +922,13 @@ class Camera(CameraTemplate, ABC):
 
         return new_mean, dead_pixels
 
+    def splitChannels(self, img) -> np.array:
+        b = img[0::2, 0::2]
+        g1 = img[0::2, 1::2]
+        g2 = img[1::2, 0::2]
+        r = img[1::2, 1::2]
+        return np.dstack((b, g1, g2, r))
+
     def checkFirstPhase(self, images: List[np.ndarray]) -> int:
         ref_image = images[0]
         first_phase: int = 2
@@ -927,6 +945,13 @@ class Camera(CameraTemplate, ABC):
                     break
 
         return first_phase
+
+    def convert8bit(self, img):
+        max_pix_val = 1023
+        norm_image = img.copy() / max_pix_val
+        max_output_pix_val = 255
+        image = norm_image * max_output_pix_val
+        return image.astype(np.uint8)
 
     def setAnalysisMode(self, mode: bool = False) -> bool:
         if mode is not None:
@@ -957,7 +982,9 @@ if __name__ == '__main__':
     cam.setTriggerMode("Out")
     cam.setFrameRate(frameRate=10)
     cam.setExposureMicrons(70000)
-    cam.setPixelFormat(fmt = "RGB8")
+    cam.setPixelFormat(fmt="RGB8")
+    cam.singleRGBChanel = True
+
     # cam.setMeasurementMode(mode=True)
 
     cam.listFeatures()
@@ -967,7 +994,11 @@ if __name__ == '__main__':
     refImage = cam.getImage()
     ref_image = cam.postProcessImages(refImage, blacklevelcorrection=False)
     cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    cv2.imshow('test', ref_image)
+    if cam.singleRGBChanel:
+        ref_image = np.concatenate((cam.convert8bit(ref_image[:, :, 0]),
+                                    cam.convert8bit(ref_image[:, :, 1]),
+                                    cam.convert8bit(ref_image[:, :, 2]),
+                                    cam.convert8bit(ref_image[:, :, 3])), axis=1)
     i = 0
     while True:
         cam.logger.debug(f'Iteration: {i}')
@@ -976,13 +1007,18 @@ if __name__ == '__main__':
         if np.array_equal(ref_image, Image):
             print("images are identical")
             break
-        refImage = Image
+        if cam.singleRGBChanel:
+            Image = np.concatenate((cam.convert8bit(Image[:, :, 0]),
+                                    cam.convert8bit(Image[:, :, 1]),
+                                    cam.convert8bit(Image[:, :, 2]),
+                                    cam.convert8bit(Image[:, :, 3])), axis=1)
         cv2.imshow('test', Image)
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
         i += 1
+        refImage = Image
     del cam
     #########################################################
 
