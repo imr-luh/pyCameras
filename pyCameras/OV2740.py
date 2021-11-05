@@ -121,7 +121,7 @@ class Camera(CameraTemplate, ABC):
         self.FrameRate: int = 10
         self.TriggerMode: str = "out"
         self.PixelFormat: str = "Mono10"
-        self.singleRGBChanel: bool = True
+        self.singleRGBChanel: bool = False
         self.buffers: List[object] = []
         self.buf: v4l2.v4l2_buffer = v4l2.v4l2_buffer()
         self.buf_type: int = 0
@@ -133,11 +133,15 @@ class Camera(CameraTemplate, ABC):
         self.getCapability()
         self.ImageWidth: int = 0
         self.ImageHeight: int = 0
-        self.usb3: bool = False
+        if platform.processor().lower() == "aarch64":
+            self.raspi: bool = True
+        else:
+            self.raspi: bool = False
         self.bit_death = 10
         self.debug: bool = False
         self.gray = False
         self.analysis_mode = False
+        self.solidFieldFirst = True
 
     @staticmethod
     def listDevices() -> list:
@@ -346,10 +350,10 @@ class Camera(CameraTemplate, ABC):
             self._streamingMode = False
         if self.measurementMode or self.analysis_mode:
             # todo: check this setup
-            if not self.usb3:
-                self._actual_images = requested_images * 2 + 2
+            if self.raspi:
+                self._actual_images = requested_images * 2 + 4
             else:
-                self._actual_images = requested_images * 2 + 2
+                self._actual_images = requested_images * 2 + 4
         else:
             self._actual_images = requested_images
 
@@ -360,13 +364,7 @@ class Camera(CameraTemplate, ABC):
             req = v4l2.v4l2_requestbuffers()
             req.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             req.memory = v4l2.V4L2_MEMORY_MMAP
-            if platform.processor().lower() == "aarch64" or self.usb3:
-                if self.debug:
-                    req.count = 2  # nr of buffer frames for raspi
-                else:
-                    req.count = 2  # nr of buffer frames for raspi
-            else:
-                req.count = 1  # nr of buffer frames for usbc PC
+            req.count = 2  # nr of buffer frames for usbc PC
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_REQBUFS), req)  # tell the driver that we want some buffers
 
             for ind in range(req.count):
@@ -394,14 +392,25 @@ class Camera(CameraTemplate, ABC):
             while len(ready_to_read) == 0 and time.time() - t0 < max_t:
                 ready_to_read, ready_to_write, in_error = select.select([self.device], [], [], max_t)
 
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            # old code used to avoid black images during measurement, but since other problems occurd with dark
+            # surfaces, this was commented
+            #
+            # for i in range(2):
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_DQBUF), self.buf)  # get image from the driver queue
+            # mm = self.buffers[self.buf.index]
+            #
+            # image_bytestream = mm.read()
+            # mm.seek(0)
+            # fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
 
-            fcntl.ioctl(self.device, int(v4l2.VIDIOC_QBUF), self.buf)  # request new image
+            # image_byte_array = bytearray(image_bytestream)
+            # byte_arrays.append(image_byte_array)
+            # index += 1
 
         except Exception as e:
             self.logger.exception(f"Failed to prepare recording: {e}")
 
-    def record(self) -> List[np.ndarray]:
+    def record(self) -> List[np.ndarray]: # request new image
         try:
             try:
                 imgs = None
@@ -429,7 +438,6 @@ class Camera(CameraTemplate, ABC):
         self.logger.info("Recording images")
         try:
             raw_images = self.read_buffers()
-
             fcntl.ioctl(self.device, int(v4l2.VIDIOC_STREAMOFF), self.buf_type)
             self._streamingMode = False
 
@@ -437,20 +445,27 @@ class Camera(CameraTemplate, ABC):
                 start_image = self.checkFirstPhase(images=raw_images)
                 image_counter: int = 0
 
-                for i in range(start_image, len(raw_images)):
-                    if self.debug:
-                        self.cameraImages.append(raw_images[i])
-                    elif image_counter % 2 == 0 and not self.usb3:
-                        self.cameraImages.append(raw_images[i])
-                    elif image_counter % 2 == 0 and self.usb3:
-                        self.cameraImages.append(raw_images[i + 1])
-                    image_counter += 1
+                if self.debug:
+                    self.cameraImages = raw_images
+                else:
+                    for i in range(start_image, len(raw_images)):
+                        if image_counter % 2 == 0 and self.raspi:
+                            self.cameraImages.append(raw_images[i])
+                        elif image_counter % 2 == 0 and not self.raspi:
+                            self.cameraImages.append(raw_images[i])
+                        image_counter += 1
 
             else:
                 self.cameraImages = raw_images
 
             if len(self.cameraImages) != self.requested_images:
-                self.logger.warning(f"requested {self.requested_images} images but got {len(self.cameraImages)}")
+                self.logger.warning(f"requested {self.requested_images} images but passed {len(self.cameraImages)} "
+                                    f"images, please check measurement. First image were removed")
+                if not self.debug:
+                    if len(self.cameraImages) == self.requested_images + 1:
+                        self.cameraImages= self.cameraImages[1:self.requested_images+1]
+                    else:
+                        self.cameraImages = self.cameraImages[:self.requested_images]
 
             self.logger.debug(f"recorded {len(self.cameraImages)} images")
 
@@ -622,6 +637,7 @@ class Camera(CameraTemplate, ABC):
         return image_array
 
     def blacklevelcorrection(self, uncorrected_image: np.ndarray, correction_type: str = "mean") -> np.ndarray:
+        # this function may need some testing
         try:
             load_img = False
             if load_img:
@@ -660,6 +676,8 @@ class Camera(CameraTemplate, ABC):
 
     def demosaicImage(self, raw_image: np.ndarray, algorithm: str = "interpolation",
                       rgb_scale: Optional[Dict[str, float]] = None) -> np.ndarray:
+        # this function may need some testing, rgb factors hardcoded.
+
         if rgb_scale is not None:
             r_scale = rgb_scale['r']
             b_scale = rgb_scale['b']
@@ -931,20 +949,60 @@ class Camera(CameraTemplate, ABC):
 
     def checkFirstPhase(self, images: List[np.ndarray]) -> int:
         ref_image = images[0]
-        first_phase: int = 2
-        debug = False
+        first_phase = None
+        black_image_nr = None
+        unilluminated_nr = None
+        if self.solidFieldFirst:
+            for i in range(2):
+                if np.sum(images[i]) <= 1000:
+                    black_image_nr = i
+                    if self.debug:
+                        print(f"image{i} is black")
+                else:
+                    black_image_nr = -1
+                    if self.debug:
+                        print(f"no black images")
+            if black_image_nr is not None:
+                for i in range(black_image_nr + 1,6):
+                    if abs(int(np.average(images[black_image_nr + 2])) - np.average(images[black_image_nr + 1])) < 35:
+                        unilluminated_nr = black_image_nr + 2
+                        if self.debug:
+                            print(f"image{unilluminated_nr} is probably unilluminated")
+                        break
+                    else:
+                        unilluminated_nr = black_image_nr + 1
+                        if self.debug:
+                            print(f"image{iunilluminated_nr} is probably unilluminated")
+                        break
+            if unilluminated_nr is not None:
+                for i in range(unilluminated_nr + 1, 8):
+                    if abs(int(np.average(images[unilluminated_nr + 1])) - np.average(images[unilluminated_nr])) > 35:
+                        first_phase = unilluminated_nr + 2
+                        if self.debug:
+                            print(f"image{first_phase} is first_phase")
+                        break
+                    else:
+                        first_phase = unilluminated_nr
+                        if self.debug:
+                            print(f"image{first_phase} is first_phase")
+                        break
 
-        # todo: check if threshold can be modified depentend on the mean intensity of the image
-        for i in range(1, len(images)):
-            if debug:
-                print(np.abs(np.mean(ref_image) - np.mean(images[i])))
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 3:
-                i += 1
-                first_phase = i
-                if not debug:
-                    break
+            return first_phase
+        else:
+            ref_image = images[0]
+            first_phase: int = 2
 
-        return first_phase
+            # todo: check if threshold can be modified depentend on the mean intensity of the image
+            for i in range(1, len(images)):
+                if self.debug:
+                    print(np.abs(np.mean(ref_image) - np.mean(images[i])))
+                if np.abs(np.mean(ref_image) - np.mean(images[i])) > 3:
+                    i += 1
+                    first_phase = i
+                    if not self.debug:
+                        break
+
+            return first_phase
 
     def convert8bit(self, img):
         max_pix_val = 1023
@@ -983,7 +1041,7 @@ if __name__ == '__main__':
     cam.setFrameRate(frameRate=10)
     cam.setExposureMicrons(70000)
     cam.setPixelFormat(fmt="RGB8")
-    cam.singleRGBChanel = True
+    cam.singleRGBChanel = False
 
     # cam.setMeasurementMode(mode=True)
 
