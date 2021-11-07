@@ -463,7 +463,15 @@ class Camera(CameraTemplate, ABC):
                                     f"images, please check measurement. First image were removed")
                 if not self.debug:
                     if len(self.cameraImages) == self.requested_images + 1:
-                        self.cameraImages= self.cameraImages[1:self.requested_images+1]
+                        if self.exposure > 50000:
+                            self.cameraImages= self.cameraImages[1:self.requested_images+1]
+                        else:
+                            self.cameraImages = self.cameraImages[:self.requested_images]
+                    elif len(self.cameraImages) == self.requested_images + 2:
+                        if self.exposure > 50000:
+                            self.cameraImages = self.cameraImages[2:self.requested_images + 2]
+                        else:
+                            self.cameraImages = self.cameraImages[1:self.requested_images + 1]
                     else:
                         self.cameraImages = self.cameraImages[:self.requested_images]
 
@@ -964,7 +972,7 @@ class Camera(CameraTemplate, ABC):
                         print(f"no black images")
             if black_image_nr is not None:
                 for i in range(black_image_nr + 1,6):
-                    if abs(int(np.average(images[black_image_nr + 2])) - np.average(images[black_image_nr + 1])) < 35:
+                    if abs(int(np.average(images[black_image_nr + 2])) - np.average(images[black_image_nr + 1])) < 10:
                         unilluminated_nr = black_image_nr + 2
                         if self.debug:
                             print(f"image{unilluminated_nr} is probably unilluminated")
@@ -972,14 +980,15 @@ class Camera(CameraTemplate, ABC):
                     else:
                         unilluminated_nr = black_image_nr + 1
                         if self.debug:
-                            print(f"image{iunilluminated_nr} is probably unilluminated")
+                            print(f"image{unilluminated_nr} is probably unilluminated")
                         break
             if unilluminated_nr is not None:
                 for i in range(unilluminated_nr + 1, 8):
-                    if abs(int(np.average(images[unilluminated_nr + 1])) - np.average(images[unilluminated_nr])) > 35:
+                    if abs(int(np.average(images[unilluminated_nr + 1])) - np.average(images[unilluminated_nr])) > 20:
                         first_phase = unilluminated_nr + 2
                         if self.debug:
                             print(f"image{first_phase} is first_phase")
+
                         break
                     else:
                         first_phase = unilluminated_nr
