@@ -177,6 +177,20 @@ class Camera(CameraTemplate):
         self.registerFeature('numberCams', self._setNumberCams)
         self.registerFeature('numberOfCameras', self._setNumberCams)
 
+        self.ReverseX = False
+        self.ReverseY = False
+
+        # Function to set the Camera Images as flipped according to X and Y
+        self.registerFeature('reverseImageX', self._setReverseX)
+        self.registerFeature('reverseX', self._setReverseX)
+        self.registerFeature('flipX', self._setReverseX)
+        self.registerFeature('flippedImageX', self._setReverseX)
+
+        self.registerFeature('reverseImageY', self._setReverseY)
+        self.registerFeature('reverseY', self._setReverseY)
+        self.registerFeature('flipY', self._setReverseY)
+        self.registerFeature('flippedImageY', self._setReverseY)
+
         self.framelist = []
         self.imgData = []
         self._clearQueueAndFrames()
@@ -445,7 +459,14 @@ class Camera(CameraTemplate):
         self._cleanUp()
         self.logger.debug('Image acquisition finished')
 
-        return imgData.copy()
+        if self.ReverseX and self.ReverseY:
+            return np.flipud(np.fliplr(imgData.copy()))
+        elif self.ReverseX and not self.ReverseY:
+            return np.flipud(imgData.copy())
+        elif not self.ReverseX and self.ReverseY:
+            return np.fliplr(imgData.copy())
+        else:
+            return imgData.copy()
 
     def prepareRecording(self, num):
         """ Sets the camera to MultiFrame mode and prepares frames. Use with
@@ -797,9 +818,66 @@ class Camera(CameraTemplate):
             raise TypeError('Trigger Mode should be None, "in", "out", or '
                             '"off". Got {mode}'.format(mode=mode))
 
+    def _setReverseX(self, reversed=None):
+        """
+        Flips the image sent by the camera horizontally. The Region of interest is applied after flipping. If the avt
+            camera used has the hardware support with ReverseX the hardwware Interface is used. If not the device
+            the self property called ReverseY to differentiate this.
+
+        Parameters
+        ----------
+        reversed : bool
+            If a horizontally flipped image is desired then reversed has to be set as true. Default value for
+            devices ReverseX value is false. The Region of interest is applied after flipping.
+
+        Returns
+        -------
+        ReverseX : bool
+            Returns the current state of the ReverseX value. Default is false.
+        """
+        if reversed is not None:
+            if hasattr(self.device, 'ReverseX'):
+                self.device.ReverseX = reversed
+            else:
+                self.ReverseX = reversed
+            self.logger.debug('Setting <ReverseX> to {reversed}'.format(reversed=reversed))
+
+        if hasattr(self.device, 'ReverseX'):
+            return self.device.ReverseX
+        else:
+            return self.ReverseX
+
+    def _setReverseY(self, reversed=None):
+        """
+        Flips the image sent by the camera verticall. The Region of interest is applied after flipping. If the avt
+        camera used has the hardware support with ReverseY the hardwware Interface is used. If not the device the self
+        property called ReverseY to differentiate this.
+
+        Parameters
+        ----------
+        reversed : bool
+            If a vertically flipped image is desired then reversed has to be set as true. Default value for
+            devices ReverseY value is false.
+
+        Returns
+        -------
+        ReverseY : bool
+            Returns the current state of the ReverseY value. Default is false.
+        """
+        if reversed is not None:
+            if hasattr(self.device, 'ReverseY'):
+                self.device.ReverseY = reversed
+            else:
+                self.ReverseY = reversed
+            self.logger.debug('Setting <ReverseY> to {reversed}'.format(reversed=reversed))
+
+        if hasattr(self.device, 'ReverseY'):
+            return self.device.ReverseY
+        else:
+            return self.ReverseY
+
     def __repr__(self):
         return repr(self.device)
-
 
 if __name__ == '__main__':
     import logging
@@ -823,28 +901,29 @@ if __name__ == '__main__':
     # cam_device = contr.getDevice('DEV_000F314D941E')
 
     # Test auto exposure
-    cam_device = Camera('DEV_000F314E2C01')
+    cam_device = Camera('DEV_000F314E5F03')
 
-    cam_device.exposure = 400000
+    cam_device.exposure = 600000
     print("Before: ", cam_device.exposure)
-    exposure = cam_device.autoExposure()
-    print("After: ", cam_device.exposure)
+    # exposure = cam_device.autoExposure()
+    # print("After: ", cam_device.exposure)
 
     # Listing features of device
     if bListFeatures:
         cam_device.listFeatures()
 
-    # Get an image
-    image = cam_device.getImage()
-    cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
-    cv.resizeWindow('Captured image', 1000, 1000)
-    cv.imshow('Captured image', image)
-    cv.waitKey()
+    # image = cam_device.getImage()
+    # cv.namedWindow('Captured image', cv.WINDOW_NORMAL)
+    # cv.resizeWindow('Captured image', 1000, 1000)
+    # cv.imshow('Captured image', image)
+    # cv.waitKey()
 
     if bLiveView:
         cam_device._liveView()
 
-    images = cam_device.getImages(10)
+    number_of_images = 10
+    print("Capturing {0} images".format(number_of_images))
+    images = cam_device.getImages(number_of_images)
     print(len(images))
     for _, img in enumerate(images):
         print('Showing image {i}'.format(i=_))
