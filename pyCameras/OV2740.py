@@ -17,7 +17,6 @@ import cv2
 import matplotlib.pyplot as plt
 import os
 import time
-import colour_demosaicing
 from func_timeout import func_timeout
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 from typing import List, Tuple, Union, BinaryIO, Dict, Any, Optional
@@ -710,9 +709,6 @@ class Camera(CameraTemplate, ABC):
         elif algorithm.lower() == "edge":
             demosaic_img = cv2.demosaicing(src=raw_image, code=cv2.COLOR_BayerBG2BGR_EA)
 
-        elif algorithm.lower() == "ddfapd":
-            demosaic_img = colour_demosaicing.demosaicing_CFA_Bayer_DDFAPD(raw_image, "BGGR")
-
         else:
             # Demosaicing using bilinear interpolation
             if self.gray:
@@ -1048,7 +1044,7 @@ if __name__ == '__main__':
 
     cam.setTriggerMode("Out")
     cam.setFrameRate(frameRate=10)
-    cam.setExposureMicrons(70000)
+    cam.setExposureMicrons(30000)
     cam.setPixelFormat(fmt="RGB8")
     cam.singleRGBChanel = False
 
