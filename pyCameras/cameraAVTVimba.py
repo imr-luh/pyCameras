@@ -22,29 +22,12 @@ import cv2
 import numpy as np
 
 from vimba.vimba import Vimba
-from vimba.frame import FrameStatus
-from vimba.error import VimbaFeatureError
+from vimba.frame import FrameStatus, AllocationMode
+from vimba.error import VimbaFeatureError, VimbaCameraError
 
 from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 
 LOGGING_LEVEL = None
-
-
-def vimba_context(func):
-    """
-    Decorator which enables a function to be executed
-    inside the vimba context when not needing the vimba variable itself.
-
-    Parameters
-    ----------
-    func : Decorated function
-    """
-
-    def open_vimba_context(*args, **kwargs):
-        with Vimba.get_instance():
-            return func(*args, **kwargs)
-
-    return open_vimba_context
 
 
 class FrameHandler:
@@ -65,21 +48,19 @@ class FrameHandler:
 
 
 class FrameHandlerBlocking(FrameHandler):
-    def __init__(self, max_imgs, thread_lock):
+    def __init__(self, max_imgs):
         super(FrameHandlerBlocking, self).__init__(max_imgs=max_imgs)
-        self.thread_lock = thread_lock
-        # self.counter = 0
+        self.shutdown_event = threading.Event()
 
     def __call__(self, cam, frame):
         # print(f"{cam} Frame {self.counter}")
         # print(f"{cam} Frame Status {frame.get_status()}")
         if frame.get_status() == FrameStatus.Complete:
-            # self.counter += 1
             if len(self.img_data) < self.max_imgs:
                 # After max_imgs images all frames will be trashed
                 self.img_data.append(frame.as_numpy_ndarray())
                 if len(self.img_data) >= self.max_imgs:
-                    self.thread_lock.release()
+                    self.shutdown_event.set()
 
         cam.queue_frame(frame)
 
@@ -126,9 +107,56 @@ class Grabber(threading.Thread):
                 pass
 
     def stop(self):
-        with Vimba.get_instance():
-            self._cam.stop_streaming()
+        # with Vimba.get_instance():
+        #     self._cam.stop_streaming()
         self._stop_event.set()
+
+
+class FrameProducer(threading.Thread):
+    def __init__(self, cam, max_imgs):
+        super(FrameProducer, self).__init__()
+
+        self.cam = cam
+        self.max_imgs = max_imgs
+        # self.img_data = list()
+        self.frame_list = list()
+        self.shutdown_event = threading.Event()
+        self.ready_event = threading.Event()
+
+    def __call__(self, cam, frame):
+        # if frame.get_status() == FrameStatus.Complete:
+        # print(len(self.img_data))
+        # if len(self.img_data) < self.max_imgs:
+        if len(self.frame_list) < self.max_imgs:
+            # After max_imgs images all frames will be trashed
+            # self.img_data.append(frame.as_numpy_ndarray())
+            self.frame_list.append(copy.deepcopy(frame))
+            # if len(self.img_data) >= self.max_imgs:
+
+        cam.queue_frame(frame)
+        if len(self.frame_list) >= self.max_imgs:
+            self.stop()
+
+    def stop(self):
+        self.shutdown_event.set()
+
+    def run(self):
+        try:
+            with self.cam:
+                try:
+                    # self.cam.start_streaming(handler=self, buffer_count=self.max_imgs)
+                    self.cam.start_streaming(handler=self, buffer_count=2)
+                    self.ready_event.set()
+                    self.shutdown_event.wait()
+
+                finally:
+                    self.cam.stop_streaming()
+        except VimbaCameraError:
+            pass
+
+    def get_images(self):
+        return [f.as_numpy_ndarray() for f in self.frame_list]
+        # return self.img_data.copy()
 
 
 class Controller(ControllerTemplate):
@@ -238,10 +266,6 @@ class Camera(CameraTemplate):
         # with Vimba.get_instance() as vimba:
         self.device = self.vmb.get_camera_by_id(device_handle)
 
-        # Sets package sizes and transfer rates for GigE cameras
-        # TODO: How to set transfer rates for already running cameras?
-        self._setup_transfer_sizes()
-
         self.device_handle = device_handle
 
         self.triggerModeSetting = 'off'
@@ -293,10 +317,13 @@ class Camera(CameraTemplate):
         # Init data type LUT for each PixelFormat
         self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
 
+        # Sets package sizes and transfer rates for GigE cameras
+        # TODO: How to set transfer rates for already running cameras?
+        self._setup_transfer_sizes()
+
     def __del__(self):
         self.vmb.__exit__(None, None, None)
 
-    #@vimba_context
     def _setup_transfer_sizes(self):
         with self.device as cam:
             # Try to adjust GeV packet size. This Feature is only available for GigE - Cameras.
@@ -408,20 +435,23 @@ class Camera(CameraTemplate):
         num : int
             number of frames to be captured during acquisition
         """
-        self.thread_lock.acquire()
-
         with self.device as cam:
             cam.AcquisitionMode.set('MultiFrame')
             cam.AcquisitionFrameCount.set(num)
 
-        self._frame_handler = FrameHandlerBlocking(max_imgs=num, thread_lock=self.thread_lock)
-        self._grabber = Grabber(self.device, self._frame_handler, num)
+        self._grabber = FrameProducer(self.device, num)
         self._grabber.start()
 
-        while not self.device.is_streaming():
-            pass
+        self._grabber.ready_event.wait()
 
-        time.sleep(1)
+        # self._frame_handler = FrameHandlerBlocking(max_imgs=num)
+        # self._grabber = Grabber(self.device, self._frame_handler, num)
+        # self._grabber.start()
+
+        # while not self.device.is_streaming():
+        #     pass
+
+        # time.sleep(1)
 
     def record(self):
         """ Blocking image acquisition, ends acquisition when num frames are
@@ -434,21 +464,23 @@ class Camera(CameraTemplate):
             List of images
         """
         print("Waiting for lock")
-        self.thread_lock.acquire()
-        print("Acquired lock")
+        # self.thread_lock.acquire()
+
+        # self._frame_handler.shutdown_event.wait()
+        self._grabber.shutdown_event.wait()
+        self.imgData = self._grabber.get_images()
+        # print("Acquired lock")
         # Reset thread
-        self._grabber.stop()
+        # self._grabber.stop()
         self._grabber.join()
         self._grabber = None
 
         # Get data and clear frame handler
-        self.imgData = self._frame_handler.get_images()
-        self._frame_handler = None
+        # self.imgData = self._frame_handler.get_images()
+        # self._frame_handler = None
 
         with self.device as cam:
             cam.AcquisitionMode.set('Continuous')
-
-        self.thread_lock.release()
 
         return self.imgData
 
@@ -861,10 +893,10 @@ class Camera(CameraTemplate):
 
             if isinstance(mode, str):
                 if mode.lower() == 'in':
-                    trigger_mode_feature.set('On')
-                    trigger_source_feature.set('Line1')
                     trigger_selector_feature.set('FrameStart')
+                    trigger_source_feature.set('Line1')
                     trigger_activation_feature.set("RisingEdge")
+                    trigger_mode_feature.set('On')
 
                     self.triggerModeSetting = 'in'
                 elif mode.lower() == 'out':
@@ -873,9 +905,9 @@ class Camera(CameraTemplate):
                     raise NotImplementedError('Sending triggers is not'
                                               'implemented yet!')
                 elif mode.lower() == 'off':
-                    trigger_mode_feature.set('Off')
-                    trigger_source_feature.set('Freerun')
                     trigger_selector_feature.set('FrameStart')
+                    trigger_source_feature.set('Freerun')
+                    trigger_mode_feature.set('Off')
 
                     self.triggerModeSetting = 'off'
                 else:
