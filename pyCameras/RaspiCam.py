@@ -119,7 +119,6 @@ class Camera(CameraTemplate, ABC):
         self._streamingMode: bool = False
         self.openDevice()
         self.rawCap = PiYUVArray(self.device)
-        c= 'yuv'
         self.use_video_port = True
         self.cameraImages: List[np.ndarray] = []
         self.measurementMode: bool = False
@@ -462,62 +461,13 @@ class Camera(CameraTemplate, ABC):
             return self.postProcessImages(img)
         return img
 
-    def demosaicImage(self, raw_image: np.ndarray, algorithm: str = "interpolation",
-                      rgb_scale: Optional[Dict[str, float]] = None) -> np.ndarray:
-        if rgb_scale is not None:
-            r_scale = rgb_scale['r']
-            b_scale = rgb_scale['b']
-
-        else:
-            r_scale = 1.6
-            b_scale = 1.5
-
-        raw_image[0::2, 0::2] = np.multiply(raw_image[0::2, 0::2], r_scale)
-        raw_image[1::2, 1::2] = np.multiply(raw_image[1::2, 1::2], b_scale)
-
-        input_bit = 10
-        max_pix_val = 2 ** input_bit - 1
-
-        raw_image = np.clip(raw_image, 0, max_pix_val).astype(np.uint16)
-
-        # Demosaicing using variable Number of Gradients
-        if algorithm.lower() == "gradients":
-            demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2BGR_VNG)
-
-        # Demosaicing using Edge-Aware Demosaicing
-        elif algorithm.lower() == "edge":
-            demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2BGR_EA)
-
-        else:
-            # Demosaicing using bilinear interpolation
-            if self.gray:
-                demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2GRAY)
-            else:
-                demosaic_img = cv2.demosaicing(src = raw_image, code = cv2.COLOR_BayerBG2RGB)
-
-        demosaic_img = np.clip(demosaic_img, 0, max_pix_val)
-        norm_image = demosaic_img.copy() / max_pix_val
-
-        max_output_pix_val = 2 ** self.bit_death - 1
-
-        if self.bit_death == 8:
-            image = norm_image.copy() * max_output_pix_val
-            return image.astype(np.uint8)
-
-        elif self.bit_death == 10 or 12 or 14:
-            image = norm_image.copy() * max_output_pix_val
-            return image.astype(np.uint16)
-
-        else:
-            return norm_image
-
     def YUVtoIMG(self, img, opencv=False):
         if opencv:
             if self.gray:
                 return cv2.cvtColor(src = img, code = cv2.COLOR_YUV2GRAY_420)
             else:
                 return cv2.cvtColor(src = img, code = cv2.COLOR_YUV2RGB)
-            # return cv2.cvtColor(src = img, dstCn = cv2.COLOR_YUV2RGB_I420)
+
         else:
 
             fwidth = (img.shape[0] + 31) // 32 * 32
@@ -545,39 +495,6 @@ class Camera(CameraTemplate, ABC):
                           [1.164, 2.017, 0.000]])  # B
             # Take the dot product with the matrix to produce RGB output, clamp the
             # results to byte range and convert to bytes
-
-    def postProcessImages(self, raw_images: Union[List[np.ndarray], Dict[Any, Any], np.ndarray]) -> \
-            Union[List[np.ndarray], Dict[Any, Any], np.ndarray]:
-        try:
-            img_list: list = []
-            if isinstance(raw_images, list):
-                for raw_image in raw_images:
-                    if self.ImageFormat == 'yuv':
-                        img_list.append(self.YUVtoIMG(raw_image))
-                    else:
-                        img_list.append(raw_image)
-                return img_list
-
-            elif isinstance(raw_images, dict):
-                img_dict: dict = dict()
-                for k, v in raw_images.items():
-                    for raw_image in v:
-                        if self.ImageFormat == 'yuv':
-                            img_list.append(self.YUVtoIMG(raw_image))
-                        else:
-                            img_list.append(raw_image)
-                    img_dict[k] = img_list
-                return img_dict
-
-            else:
-                if self.ImageFormat == 'yuv':
-                    return self.YUVtoIMG(raw_images)
-                else:
-                    return raw_images
-
-        except Exception as e:
-            self.logger.debug(f"function call prost processing failed {e}")
-            raise
 
     def setExposureMicrons(self, microns: int = 0) -> int:
         """
@@ -613,60 +530,6 @@ class Camera(CameraTemplate, ABC):
 
         return self.ExposureMicrons
 
-    def setPixelFormat(self, fmt=None):
-        """
-        Set the image format to the passed setting or read the current format
-        by passing None
-
-        Parameters
-        ----------
-        fmt : str
-            String describing the desired image format (e.g. "mono8"), or None
-            to read the current image format. Check camera technical manual for available formats,
-            may differ from model to model.
-
-        Returns
-        -------
-        fmt : str
-            The image format after applying the passed value
-        """
-
-        if fmt is not None:
-            self.logger.debug(f'Setting <PixelFormat> to {fmt}')
-            if fmt.lower() == "rgb8":
-                self.gray = False
-                self.bit_death = 8
-            elif fmt.lower() == "mono8":
-                self.gray = True
-                self.bit_death = 8
-            elif fmt.lower() == "rgb10":
-                self.gray = False
-                self.bit_death = 10
-            elif fmt.lower() == "mono10":
-                self.gray = True
-                self.bit_death = 10
-            else:
-                raise ValueError(f"Format unknown {fmt}")
-
-            self.PixelFormat = fmt
-        return self.PixelFormat
-
-    def setFrameRate(self, frameRate=None):
-        if frameRate is None:
-            self.FrameRate = self.device.framerate
-        else:
-            try:
-                self.device.framerate = frameRate
-                self.FrameRate = frameRate
-            except Exception as e:
-                self.logger.exception(f"Failed to set frame rate {frameRate} fps: {e}")
-        # self.FrameRate = frameRate
-        return self.FrameRate
-
-    def prepare_live(self, exposure: int):
-        self.setExposureMicrons(microns = exposure)
-        self.logger.info(f"Live View Exposure time : {exposure}µs")
-
     def __del__(self) -> None:
         """
         Camera object Destructor
@@ -677,37 +540,6 @@ class Camera(CameraTemplate, ABC):
         if not self.device:
             del self.device
 
-    def checkFirstPhase(self, images: List[np.ndarray]) -> int:
-        ref_image = images[0]
-        first_phase: int = 2
-        debug = False
-
-        # todo: check if threshold can be modified depentend on the mean intensity of the image
-        for i in range(1, len(images)):
-            if debug:
-                print(np.abs(np.mean(ref_image) - np.mean(images[i])))
-            if np.abs(np.mean(ref_image) - np.mean(images[i])) > 3:
-                i += 1
-                first_phase = i
-                if not debug:
-                    break
-
-        return first_phase
-
-    def setAnalysisMode(self, mode: bool = False) -> bool:
-        if mode is not None:
-            self.measurementMode = not mode
-            self.analysis_mode = mode
-        return self.analysis_mode
-
-    def saveImages(self, imgs: List[np.ndarray], path = None):
-        for i, img in enumerate(imgs):
-            img_name = f"img{i}.png"
-            if path is not None:
-                img_name = os.path.join(path, img_name)
-            if not cv2.imwrite(img_name, img):
-                raise ValueError
-
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
@@ -715,79 +547,12 @@ if __name__ == '__main__':
     logger.debug(f"Available Devices {available_devices}")
     # cam = Camera(available_devices[-1])
     cam = Camera(available_devices)
-    # cam = Camera()
-
-    # cam.setTriggerMode("Out")
     # cam.setFrameRate(frameRate=30)
     cam.setExposureMicrons(60000)
 
     # cam.setResolution([640, 480])
     # cam.setResolution([1296, 730])
     cam.setResolution([1296, 972])
-    # cam.setResolution([2592, 1944])
-    # cam.setPixelFormat(fmt = "RGB8")
+
     print(f"framerate: {cam.setFrameRate(10)}")
-    # print(cam.setFrameRate(30))
 
-    cam.setMeasurementMode(mode=True)
-
-    # cam.listFeatures()
-
-    ##########################################################
-    # # Code for live view
-    # refImage = cam.getImage()
-    # # ref_image = cam.postProcessImages(refImage, blacklevelcorrection=False)
-    # # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # # cv2.imshow('test', refImage)
-    # i = 0
-    # while True:
-    #     cam.logger.debug(f'Iteration: {i}')
-    #     img = cam.getImage()
-    #     # Image = cam.postProcessImages(img, blacklevelcorrection=False)
-    #     if np.array_equal(refImage, img):
-    #         print("images are identical")
-    #         break
-    #     refImage = img
-    #     # cv2.imshow('test', img)
-    #     key = cv2.waitKey(1)
-    #     if key & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #         break
-    #     i += 1
-    # del cam
-    #########################################################
-
-    #########################################################
-    # Code for the image acquisition of x Frames
-    expectedImages = 20
-    start = time.time()
-    cam.prepareRecording(expectedImages)
-    Images = cam.record()
-    end = time.time()
-    print(f"recording {len(Images)} took {end - start}")
-    # cam.saveImages(Images, path = "/home/pi/Pictures/")
-
-    # cv2.namedWindow('test', cv2.WINDOW_NORMAL)
-    # for image in Images:
-    #     # Image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    #     cv2.imshow('test', image)
-    #     key = cv2.waitKey(1)
-    #     if key & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #         raise StopIteration
-
-    del cam
-    #########################################################
-
-    # ##########################################################
-    # # Code for the analysis of dead pixels
-    # rawImages = list()
-    # for i in range(0, 20):
-    #     path_start = '/home/middendorf/PycharmProjects/pyCameras/pyCameras/images/black_level_image_'
-    #     path = os.path.join(path_start + str(i) + '.npy')
-    #     rawImage = np.load(path)
-    #     rawImages.append(rawImage)
-    #
-    # mask, dead_pixels = cam.analyseBlackLevel(rawImages, channel="All", display=False)
-    # del cam
-    # ##########################################################
