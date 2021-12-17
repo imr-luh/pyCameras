@@ -30,45 +30,6 @@ from pyCameras.cameraTemplate import ControllerTemplate, CameraTemplate
 LOGGING_LEVEL = None
 
 
-class FrameHandler:
-    def __init__(self, max_imgs=1000):
-        self.img_data = list()
-        self.max_imgs = max_imgs
-
-    def __call__(self, cam, frame):
-        if frame.get_status() == FrameStatus.Complete:
-            if len(self.img_data) < self.max_imgs:
-                # After max_imgs images all frames will be trashed
-                self.img_data.append(frame.as_numpy_ndarray())
-        else:
-            print(f"{cam} received incomplete frame.")
-            self.img_data.append(None)
-
-        cam.queue_frame(frame)
-
-    def get_images(self):
-        return self.img_data.copy()
-
-
-class FrameHandlerBlocking(FrameHandler):
-    def __init__(self, max_imgs):
-        super(FrameHandlerBlocking, self).__init__(max_imgs=max_imgs)
-        self.shutdown_event = threading.Event()
-
-    def __call__(self, cam, frame):
-        if frame.get_status() == FrameStatus.Complete:
-            if len(self.img_data) < self.max_imgs:
-                # After max_imgs images all frames will be trashed
-                self.img_data.append(frame.as_numpy_ndarray())
-                if len(self.img_data) >= self.max_imgs:
-                    self.shutdown_event.set()
-        else:
-            print(f"{cam} received incomplete frame.")
-            self.img_data.append(None)
-
-        cam.queue_frame(frame)
-
-
 class CVLiveViewHandler:
     def __init__(self, width, height):
         self.shutdown_event = threading.Event()
