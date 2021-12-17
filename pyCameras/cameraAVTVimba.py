@@ -40,6 +40,9 @@ class FrameHandler:
             if len(self.img_data) < self.max_imgs:
                 # After max_imgs images all frames will be trashed
                 self.img_data.append(frame.as_numpy_ndarray())
+        else:
+            print(f"{cam} received incomplete frame.")
+            self.img_data.append(None)
 
         cam.queue_frame(frame)
 
@@ -53,14 +56,15 @@ class FrameHandlerBlocking(FrameHandler):
         self.shutdown_event = threading.Event()
 
     def __call__(self, cam, frame):
-        # print(f"{cam} Frame {self.counter}")
-        # print(f"{cam} Frame Status {frame.get_status()}")
         if frame.get_status() == FrameStatus.Complete:
             if len(self.img_data) < self.max_imgs:
                 # After max_imgs images all frames will be trashed
                 self.img_data.append(frame.as_numpy_ndarray())
                 if len(self.img_data) >= self.max_imgs:
                     self.shutdown_event.set()
+        else:
+            print(f"{cam} received incomplete frame.")
+            self.img_data.append(None)
 
         cam.queue_frame(frame)
 
@@ -91,51 +95,25 @@ class CVLiveViewHandler:
 
 
 class Grabber(threading.Thread):
-    def __init__(self, camera, frame_handler, number_of_images):
+    def __init__(self, cam, max_imgs=1000):
         super(Grabber, self).__init__()
-        self._stop_event = threading.Event()
-        self._cam = camera
-        self._frame_handler = frame_handler
-        self._buffer_count = number_of_images
-
-    def run(self):
-        # Start vimba and camera contexts
-        with self._cam as cam:
-            cam.start_streaming(handler=self._frame_handler, buffer_count=self._buffer_count)
-            # Keep context alive until grabber is stopped
-            while not self._stop_event.is_set():
-                pass
-
-    def stop(self):
-        # with Vimba.get_instance():
-        #     self._cam.stop_streaming()
-        self._stop_event.set()
-
-
-class FrameProducer(threading.Thread):
-    def __init__(self, cam, max_imgs):
-        super(FrameProducer, self).__init__()
-
         self.cam = cam
-        self.max_imgs = max_imgs
-        # self.img_data = list()
         self.frame_list = list()
+        self.max_imgs = max_imgs
         self.shutdown_event = threading.Event()
-        self.ready_event = threading.Event()
+
+    def _append_frame(self, cam, frame):
+        if frame.get_status() == FrameStatus.Complete:
+            if len(self.frame_list) < self.max_imgs:
+                # After max_imgs images all frames will be trashed
+                self.frame_list.append(copy.deepcopy(frame))
+        else:
+            print(f"{cam} received incomplete frame.")
+            self.frame_list.append(None)
+        cam.queue_frame(frame)
 
     def __call__(self, cam, frame):
-        # if frame.get_status() == FrameStatus.Complete:
-        # print(len(self.img_data))
-        # if len(self.img_data) < self.max_imgs:
-        if len(self.frame_list) < self.max_imgs:
-            # After max_imgs images all frames will be trashed
-            # self.img_data.append(frame.as_numpy_ndarray())
-            self.frame_list.append(copy.deepcopy(frame))
-            # if len(self.img_data) >= self.max_imgs:
-
-        cam.queue_frame(frame)
-        if len(self.frame_list) >= self.max_imgs:
-            self.stop()
+        self._append_frame(cam, frame)
 
     def stop(self):
         self.shutdown_event.set()
@@ -144,9 +122,8 @@ class FrameProducer(threading.Thread):
         try:
             with self.cam:
                 try:
-                    # self.cam.start_streaming(handler=self, buffer_count=self.max_imgs)
-                    self.cam.start_streaming(handler=self, buffer_count=2)
-                    self.ready_event.set()
+                    self.cam.start_streaming(handler=self, buffer_count=5,
+                                             allocation_mode=AllocationMode.AllocAndAnnounceFrame)
                     self.shutdown_event.wait()
 
                 finally:
@@ -155,8 +132,34 @@ class FrameProducer(threading.Thread):
             pass
 
     def get_images(self):
-        return [f.as_numpy_ndarray() for f in self.frame_list]
-        # return self.img_data.copy()
+        return [f.as_numpy_ndarray() if f is not None else None for f in self.frame_list]
+
+
+class FrameProducer(Grabber):
+    def __init__(self, cam, max_imgs):
+        super(FrameProducer, self).__init__(cam, max_imgs)
+        # Ready event to block other code before camera is ready
+        self.ready_event = threading.Event()
+
+    def __call__(self, cam, frame):
+        self._append_frame(cam, frame)
+        # Stop acquisition after all images are acquired
+        if len(self.frame_list) >= self.max_imgs:
+            self.stop()
+
+    def run(self):
+        try:
+            with self.cam:
+                try:
+                    self.cam.start_streaming(handler=self, buffer_count=5,
+                                             allocation_mode=AllocationMode.AllocAndAnnounceFrame)
+                    self.ready_event.set()
+                    self.shutdown_event.wait()
+
+                finally:
+                    self.cam.stop_streaming()
+        except VimbaCameraError:
+            pass
 
 
 class Controller(ControllerTemplate):
@@ -318,7 +321,6 @@ class Camera(CameraTemplate):
         self.imageFormatLUT = {'Mono8': np.uint8, 'Mono12': np.uint16}
 
         # Sets package sizes and transfer rates for GigE cameras
-        # TODO: How to set transfer rates for already running cameras?
         self._setup_transfer_sizes()
 
     def __del__(self):
@@ -328,6 +330,7 @@ class Camera(CameraTemplate):
         with self.device as cam:
             # Try to adjust GeV packet size. This Feature is only available for GigE - Cameras.
             try:
+                self.logger.info(f"Adjusting package size of camera: {self.device}.")
                 cam.GVSPAdjustPacketSize.run()
 
                 while not cam.GVSPAdjustPacketSize.is_done():
@@ -368,7 +371,7 @@ class Camera(CameraTemplate):
         Opens a camera device with the stored self.device object
         """
         # Cameras are handled within a context.
-        # There is a "open" method, but using the with statement seems more safe.
+        # There is an "open" method, but using the with statement seems more safe.
         pass
 
     def closeDevice(self):
@@ -441,17 +444,8 @@ class Camera(CameraTemplate):
 
         self._grabber = FrameProducer(self.device, num)
         self._grabber.start()
-
+        self.logger.debug("Waiting for ready event from grabber thread.")
         self._grabber.ready_event.wait()
-
-        # self._frame_handler = FrameHandlerBlocking(max_imgs=num)
-        # self._grabber = Grabber(self.device, self._frame_handler, num)
-        # self._grabber.start()
-
-        # while not self.device.is_streaming():
-        #     pass
-
-        # time.sleep(1)
 
     def record(self):
         """ Blocking image acquisition, ends acquisition when num frames are
@@ -463,61 +457,37 @@ class Camera(CameraTemplate):
         imgData : list
             List of images
         """
-        print("Waiting for lock")
-        # self.thread_lock.acquire()
-
-        # self._frame_handler.shutdown_event.wait()
+        self.logger.debug("Waiting for shutdown event of frame producer.")
         self._grabber.shutdown_event.wait()
         self.imgData = self._grabber.get_images()
-        # print("Acquired lock")
-        # Reset thread
-        # self._grabber.stop()
         self._grabber.join()
         self._grabber = None
-
-        # Get data and clear frame handler
-        # self.imgData = self._frame_handler.get_images()
-        # self._frame_handler = None
 
         with self.device as cam:
             cam.AcquisitionMode.set('Continuous')
 
         return self.imgData
 
-    def grabStart(self, number_of_images):
+    def grabStart(self):
         """
         Prepares num images to be grabbed. This function is not blocking.
         Calling "grabStop()" will end acquisition.
-
-        Parameters
-        ----------
-        num : int
-            Number of images that should be recorded
         """
-        # TODO: Prevent starting multiple threads? - Camera is occupied anyway...
-        self._frame_handler = FrameHandler(max_imgs=1000)
-        self._grabber = Grabber(self.device, self._frame_handler, number_of_images=number_of_images)
+        self._grabber = Grabber(self.device)
         self._grabber.start()
 
     def grabStop(self):
         """
         Stop grabbing images and return camera to continuous mode.
         """
-        # Reset thread
-        while self._grabber._buffer_count != len(self._frame_handler.img_data):
-            continue
-
         self._grabber.stop()
+        self.imgData = self._grabber.get_images()
+        # Stop thread and reset grabber
         self._grabber.join()
         self._grabber = None
 
-        # Get data and clear frame handler
-        self.imgData = self._frame_handler.get_images()
-        self._frame_handler = None
-
         return self.imgData
 
-    #@vimba_context
     def _liveView(self):
         """
         Live image stream an visualization through OpenCV window
@@ -534,7 +504,6 @@ class Camera(CameraTemplate):
             finally:
                 cam.stop_streaming()
 
-    #@vimba_context
     def listFeatures(self):
         """
         Lists camera features
@@ -549,7 +518,6 @@ class Camera(CameraTemplate):
             self.logger.exception('Failed to get feature names: '
                                   '{e}'.format(e=e))
 
-    #@vimba_context
     def setExposureMicrons(self, microns=None):
         """
         Set the exposure time to the given value in microseconds or read the
@@ -567,7 +535,11 @@ class Camera(CameraTemplate):
             The exposure time in microseconds after applying the passed value
         """
         with self.device as cam:
-            exposure_time_feature = cam.ExposureTimeAbs
+            try:
+                exposure_time_feature = cam.ExposureTime
+            except AttributeError:
+                # camera uses legacy feature name
+                exposure_time_feature = cam.ExposureTimeAbs
             if microns is not None:
                 self.logger.debug('Setting <ExposureTime> to {microns}'
                                   ''.format(microns=microns))
@@ -575,7 +547,6 @@ class Camera(CameraTemplate):
 
             return exposure_time_feature.get()
 
-    #@vimba_context
     def _setReverseX(self, reversed=None):
         """
         Flips the image sent by the camera horizontally. The Region of interest is applied after flipping. If the avt
@@ -606,7 +577,6 @@ class Camera(CameraTemplate):
             else:
                 return self.ReverseX
 
-    #@vimba_context
     def _setReverseY(self, reversed=None):
         """
         Flips the image sent by the camera verticall. The Region of interest is applied after flipping. If the avt
@@ -708,7 +678,6 @@ class Camera(CameraTemplate):
 
         return self.numCams
 
-    #@vimba_context
     def autoExposure(self):
         """
         Automatically sets the exposure time of the camera ONCE.
@@ -770,7 +739,6 @@ class Camera(CameraTemplate):
 
             return exposure_time_feature.get()
 
-    #@vimba_context
     def setResolution(self, resolution=None):
         """
         Set the resolution of the camera to the given values in pixels or read
@@ -799,7 +767,6 @@ class Camera(CameraTemplate):
                 height_feature.set(resolution[1])
             return width_feature.get(), height_feature.get()
 
-    #@vimba_context
     def setGain(self, gain=None):
         """
         Set the gain of the camera to the given value or read the current value
@@ -824,7 +791,6 @@ class Camera(CameraTemplate):
                 gain_feature.set(gain)
             return gain_feature.get()
 
-    #@vimba_context
     def setPixelFormat(self, fmt=None):
         """
         Set the image format to the passed setting or read the current format
@@ -861,7 +827,6 @@ class Camera(CameraTemplate):
 
             return str(fmt_feature.get())
 
-    #@vimba_context
     def setTriggerMode(self, mode=None):
         """
         Set the trigger mode of the camera to either "in", "out" or "off", or
@@ -923,6 +888,23 @@ class Camera(CameraTemplate):
         return repr(self.device)
 
 
+def show_images(images, wait_key_timeout=0):
+    if not isinstance(images, list):
+        images = [images, ]
+    cv2.namedWindow('Captured image', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Captured image', 1000, 1000)
+    for img in images:
+        if img is None:
+            print("Image was incomplete")
+            continue
+        # Convert to float [0, 1]
+        if img.dtype == np.uint16:
+            img = img.astype(np.float64)
+            img /= 4096
+        cv2.imshow('Captured image', img)
+        cv2.waitKey(wait_key_timeout)
+
+
 if __name__ == '__main__':
     import logging
 
@@ -935,18 +917,19 @@ if __name__ == '__main__':
     print(handle)
 
     # Dictionary to test different connection types/inputs
-    source = {'IP': '130.75.27.144',
-              'Handle_list': handle,
-              'Handle': handle[0],
-              'Bad_input': 'Yo Mama is fat'}
+    # source = {'IP': '130.75.27.144',
+    #           'Handle_list': handle,
+    #           'Handle': handle[0],
+    #           'Bad_input': 'Yo Mama is fat'}
     # Use one of source entries here:
-    cam_device = contr.getDevice(source['Handle_list'])
+    # cam_device = contr.getDevice(source['Handle_list'])
     # cam_device = contr.getDevice('DEV_000F314D941E')
 
     # Test auto exposure
-    cam_device = Camera('000F314E5F04')
+    cam_device = Camera('000F314E2C01')
 
-    cam_device.exposure = 1500000
+    cam_device.exposure = 500000
+    cam_device.pixelFormat = "Mono12"
     # print("Before: ", cam_device.exposure)
     # exposure = cam_device.autoExposure()
     # print("After: ", cam_device.exposure)
@@ -955,6 +938,9 @@ if __name__ == '__main__':
     if bListFeatures:
         cam_device.listFeatures()
 
+    if bLiveView:
+        cam_device._liveView()
+
     # Get an image
     # image = cam_device.getImage()
     # cv2.namedWindow('Captured image', cv2.WINDOW_NORMAL)
@@ -962,30 +948,20 @@ if __name__ == '__main__':
     # cv2.imshow('Captured image', image)
     # cv2.waitKey()
 
-    if bLiveView:
-        cam_device._liveView()
-
-    print(cam_device.pixelFormat)
-
     cam_device.setTriggerMode("off")
-    number_of_images = 10
-    print("Capturing {0} images".format(number_of_images))
 
-    # images = cam_device.getImages(number_of_images)
-    # print(f"Number of Images {len(images)}")
-    # for i, img in enumerate(images):
-    #     cv2.imwrite(rf"F:\Messwerte\Telezentrie\image{i}.png")
+    # number_of_images = 8
+    # print("Capturing {0} images".format(number_of_images))
+    # cam_device.prepareRecording(number_of_images)
+    # imgs = cam_device.record()
+    # print(f"Number of images acquired after record-function: {len(imgs)}")
+    # show_images(imgs, 0)
 
-        # print('Showing image {i}'.format(i=i))
-        # cv2.imshow('Captured image', img)
-        # cv2.waitKey()
-
-    cam_device.grabStart(10)
-    grabbedImgs = cam_device.grabStop()
-
-    for i, img in enumerate(grabbedImgs):
-        print(f"Writing Image {i}")
-        cv2.imwrite(rf"F:\Messwerte\Telezentrie\image{i}.png", img)
+    cam_device.grabStart()
+    time.sleep(10)
+    imgs = cam_device.grabStop()
+    print(f"Number of images acquired after grab-function: {len(imgs)}")
+    show_images(imgs, 0)
 
     cam_device.closeDevice()
 
