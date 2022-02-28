@@ -469,6 +469,13 @@ class Camera(CameraTemplate):
         else:
             return imgData.copy()
 
+    def stopAcquisition(self):
+        self.device.runFeatureCommand('AcquisitionStop')
+        # Do cleanup
+        self._cleanUp()
+        # Set back to freerun mode
+        self.device.AcquisitionMode = 'Continuous'
+
     def prepareRecording(self, num):
         """ Sets the camera to MultiFrame mode and prepares frames. Use with
         "record()"-function.
