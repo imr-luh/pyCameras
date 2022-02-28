@@ -161,6 +161,7 @@ class Camera(CameraTemplate):
         # NOTE: Functions self._setMaxTransferRate, self._setTransferRate and self._setNumberCams may change this value
         # self.device.StreamBytesPerSecond = 10000000  # 10 Mb/sec (without GigE)
         self.device.StreamBytesPerSecond = 115000000  # 100 Mb/sec (with GigE)
+        self.device.GVSPBurstSize = 32
 
         self.maxTransferRate = 115000000
         self.numCams = 1
