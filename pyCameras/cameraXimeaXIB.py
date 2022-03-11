@@ -1,9 +1,9 @@
-#!/usr/bin/env python
 """
 Implementation of the template for XIMEA XiB cameras
 """
-__author__ = "Jochen Schlobohm"
-__credits__ = ["Ruediger Beermann", "Niklas Kroeger"]
+
+__author__ = "Tim Engelbracht"
+__credits__ = ["Tim Engelbracht"]
 __maintainer__ = "not assigned"
 __email__ = ""
 __status__ = "Development"
@@ -11,56 +11,14 @@ __status__ = "Development"
 import abc
 import logging
 import numpy as np
+import cv2
+from ximea import xiapi, xidefs
+from ximea.xiapi import Xi_error
+from pyCameras.utils import SettingsHandler
 
-from pyXimea import xiapi, xidefs
+LOGGING_LEVEL = None
+
 from pyCameras.cameraTemplate import CameraTemplate
-
-# class CameraControllerTemplate(object):
-#     """
-#     Template class for spectrometer controllers to inherit from if they are
-#     necessary to use the camera. The controller for camera devices should
-#     be opened and closed from the Camera.openController and
-#     Camera.closeController static methods. If the controller is only used to
-#     detect available camera devices, that logic could also be easily
-#     implemented in Camera.listDevices().
-#     """
-# 
-#     def __init__(self):
-#         self.logger = logging.getLogger(__name__)
-#         self.device_handles = []
-# 
-#     def listDevices(self):
-#         """
-#         Returns a list of available devices. One of these entries should be
-#         used as parameter for self.getDevice to open the corresponding device
-# 
-#         Returns
-#         -------
-#         device_handles : list
-#             List of available capture devices
-#         """
-#         self.updateDeviceHandles()
-#         return self.device_handles
-# 
-#     def updateDeviceHandles(self):
-#         """
-#         Update the list of available device handles
-#         """
-#         raise NotImplementedError
-# 
-#     def getDevice(self, device_handle):
-#         raise NotImplementedError
-# 
-#     def closeController(self):
-#         raise NotImplementedError
-# 
-#     def __del__(self):
-#         self.logger.debug('Deleting cameracontroller {self}'
-#                           ''.format(self=self))
-#         self.closeController()
-# 
-#     def __repr__(self):
-#         return "<CameraController Template: OVERLOAD THIS FUNCTION>"
 
 
 class CameraXimeaXIB(CameraTemplate):
@@ -68,12 +26,9 @@ class CameraXimeaXIB(CameraTemplate):
     Class to access XIMEA XiB cameras.
     The device_handle is the serial number STRING
     """
+
     def __init__(self, device_handle):
         """
-        Template class for camera objects. This is only meant to define the
-        interface. You probably want a real camera implementation that is
-        inherited from this class.
-
         Parameters
         ----------
         device_handle : object
@@ -83,10 +38,10 @@ class CameraXimeaXIB(CameraTemplate):
         super(CameraXimeaXIB, self).__init__(device_handle)
 
         self.logger = logging.getLogger(__name__)
-        self.device_handle = device_handle  # Use this to identify and open the
-                                            # device
+        self.device_handle = device_handle  # Use this to identify and open the device
         self.device = xiapi.Camera()  # Use this variable to store the device itself
-        self.triggerMode = "off"
+        self.triggermode = 'off'
+        self.buffer = []
 
     @staticmethod
     def listDevices():
@@ -97,12 +52,8 @@ class CameraXimeaXIB(CameraTemplate):
         numCameras = cam.get_number_devices()
         result = []
         for i in range(numCameras):
-            #print i
             cam = xiapi.Camera(i)
-            
-            cam.open_device()
-            result.append(cam.get_device_sn().decode("utf-8"))
-            cam.close_device()
+            result.append(cam.get_device_info_string("device_sn").decode("utf-8"))
         return result
 
     def openDevice(self):
@@ -110,13 +61,95 @@ class CameraXimeaXIB(CameraTemplate):
         Open the device by using self.device_handle and store the device in
         self.device
         """
-        self.device.open_device_by_SN(self.device_handle)
+        try:
+            self.device.open_device_by_SN(self.device_handle)  # SN: serialnumber
+        except Xi_error as e:
+            self.logger.error(f"Camera device is already in use: {e}")
+            exit(11)
 
     def closeDevice(self):
         """
         Close the connection to the device and reset self.device to None.
         """
         self.device.close_device()
+
+    def getImage(self):
+        """
+        Return a numpy array containing an image
+
+        *args and **kwargs are optional parameters that may be ignored!
+
+        imgdataformat: See get_image_data_numpy()
+        """
+
+        try:
+            img = xiapi.Image()
+            self.device.start_acquisition()
+            self.device.get_image(img)
+
+            data = img.get_image_data_numpy()
+        except:
+            raise
+        finally:
+            self.device.stop_acquisition()
+
+        return data
+
+    def getImages(self, num):
+        """
+        Blocking function that waits for num images to be recorded and returns
+        an iterable of numpy arrays corresponding to images. Recording of
+        images is done according to the currently set trigger mode!
+
+        If a time sensitive image acquisition task is done consider using the
+        separate self.prepareRecording(num) and self.record() functions to
+        achieve the same result.
+
+        Parameters
+        ----------
+        num : int
+            number of images to return.
+        """
+        self.prepareRecording(num=num)
+        return self.record()
+
+    def prepareRecording(self, num):
+        """
+        Prepare the camera to recorded the given number of images by setting
+        up a frame buffer or doing other camera specific actions. The actual
+        recording is done in self.record() and should be blocking until the
+        desired number of images is recorded.
+
+        Parameters
+        ----------
+        num : int
+            Number of images that should be recorded
+        """
+        self.buffer = [xiapi.Image() for i in range(0, num)]
+
+        return self.buffer
+
+    def record(self):
+        """
+        Blocking image acquisition of a previously defined number of images
+        (see prepareRecording).
+
+        Returns
+        -------
+        imgs : list
+            List of numpy arrays containing the recorded images
+        """
+
+        self.device.start_acquisition()
+        imgs = []
+
+        for img in self.buffer:
+            self.device.get_image(img, timeout=10000)
+            imgs.append(img.get_image_data_numpy())
+
+        self.device.stop_acquisition()
+
+        return imgs
 
     def isOpen(self):
         """
@@ -129,98 +162,6 @@ class CameraXimeaXIB(CameraTemplate):
             True if the camera connection is open, False if it is not
         """
         return self.device.CAM_OPEN
-
-    def getImage(self, *args, **kwargs):
-        """
-        Return a numpy array containing an image
-
-        *args and **kwargs are optional parameters that may be ignored!
-        """
-        try:
-            self.device.start_acquisition()
-            img = xiapi.Image()
-            self.device.get_image(img)
-            nImg = self.getNumpyData(img)
-        except:
-            raise
-        finally:
-            self.device.stop_acquisition()
-        return nImg
-
-    def getNumpyData(self, img):
-        bpp = img.get_bytes_per_pixel()
-        if bpp in [1, 3, 4]: 
-            npType = np.uint8                
-        elif bpp in [2, 6, 8]:
-            npType = np.uint16
-        raw = img.get_image_data_raw()
-        #print(len(raw), img.width, img.height, img.get_bytes_per_pixel(), npType)
-        nImg = np.squeeze(np.fromstring(raw, dtype = npType).reshape((img.height, img.width, -1)))
-        return nImg 
-
-    def getImages(self, num=None):
-        """
-        Return a iterable of numpy arrays corresponding to images that were
-        recorded previously. If there are no buffered images the iterable may
-        be empty.
-
-        Parameters
-        ----------
-        num : int
-            number of images to return. If None return all images currently in
-            buffer
-        """
- 
-        result = [xiapi.Image() for i in range(num)]
-        resultNp = []
-        self.device.start_acquisition()
-        t = time()
-
-        try:
-            for img in result:
-                self.device.get_image(img)
-                resultNp.append(self.getNumpyData(img))
-        finally:
-            self.device.stop_acquisition()
-
-    def grabStart(self):
-        """
-        Start grabbing images
-        """
-        self.device.start_acquisition()
-
-    def grabStop(self):
-        """
-        Stop grabbing images
-        """
-        self.device.stop_acquisition()
-
-    def listFeatures(self):
-        """
-        Helper function to return the properties dict
-        """
-        return xidefs.ASSOC_ENUM.keys()
-
-    def registerSharedFeatures(self):
-        """
-        Registration of shared features that should be the same for all camera
-        implementations. E.g. ExposureMicrons, Resolution, Gain, Format and
-        TriggerMode
-        """
-        self.logger.debug('Registering shared camera features')
-
-        self.registerFeature('ExposureMicrons', self.setExposureMicrons)
-        self.registerFeature('ExposureTime', self.setExposureMicrons)
-        self.registerFeature('Exposure', self.setExposureMicrons)
-
-        self.registerFeature('Resolution', self.setResolution)
-
-        self.registerFeature('Gain', self.setGain)
-
-        self.registerFeature('Format', self.setPixelFormat)
-
-        self.registerFeature('TriggerMode', self.setTriggerMode)
-        self.registerFeature('Trigger', self.setTriggerMode)
 
     def setExposureMicrons(self, microns=None):
         """
@@ -240,23 +181,27 @@ class CameraXimeaXIB(CameraTemplate):
         """
         self.device.set_exposure(microns)
 
-    def setResolution(self, resolution=None):
+        return microns
+
+    def setPixelFormat(self, fmt=None):
         """
-        Set the resolution of the camera to the given values in pixels or read
-        the current resolution by passing None
+        Set the image format to the passed setting or read the current format
+        by passing None
 
         Parameters
         ----------
-        resolution : tuple
-            Desired camera resolution in the form (width, height), or None to
-            read the current resolution
+        fmt : str
+            String describing the desired image format (e.g. "mono8"), or None
+            to read the current image format
 
         Returns
         -------
-        resolution : tuple
-            The set camera resolution after applying the passed value
+        fmt : str
+            The image format after applying the passed value
         """
-        raise NotImplementedError
+        self.device.set_imgdataformat(fmt)
+
+        return fmt
 
     def setGain(self, gain=None):
         """
@@ -274,33 +219,24 @@ class CameraXimeaXIB(CameraTemplate):
         gain : int
             The gain value after applying the passed value
         """
-        self.device.set_gain_selector("XI_GAIN_SELECTOR_ANALOG_ALL");  
+
         if gain is None:
-            return self.device.get_gain()
+            gain = self.device.get_gain()
+
         self.device.set_gain(gain)
 
-    def setPixelFormat(self, format=None):
-        """
-        Set the image format to the passed setting or read the current format
-        by passing None
+        return gain
 
-        Parameters
-        ----------
-        format : str
-            String describing the desired image format (e.g. "mono8"), or None
-            to read the current image format
-
-        Returns
-        -------
-        format : str
-            The image format after applying the passed value
-        """
+    def setStrobeMode(self, mode: str = "off", port: int = 1):
         raise NotImplementedError
 
-    def setTriggerMode(self, mode=None):
+    def setTriggerMode(self, mode: str = "off", port: int = 1):
+        # TODO: Implement all features (rising edge, software, off, exposure active, frame active, etc.)
         """
         Set the trigger mode of the camera to either "in", "out" or "off", or
         read the current trigger setting ba passing None
+
+        Set Pin
 
         Parameters
         ----------
@@ -315,79 +251,146 @@ class CameraXimeaXIB(CameraTemplate):
         mode : str
             The trigger mode after applying the passed value
         """
-        if mode is None:
-            return self.triggerMode
-        elif mode == "off":
-            
-            self.device.set_gpo_selector("XI_GPO_PORT1")
+
+        if mode == "off":
+            self.device.set_gpo_selector(f"XI_GPO_PORT{port}")
             self.device.set_gpo_mode("XI_GPO_OFF")
-            self.device.set_gpi_selector("XI_GPI_PORT1")
+            self.device.set_gpi_selector(f"XI_GPI_PORT{port}")
             self.device.set_gpi_mode("XI_GPI_OFF")
             self.device.set_trigger_source("XI_TRG_OFF")
         elif mode == "in":
-            self.device.set_gpo_selector("XI_GPO_PORT1")
-            self.device.set_gpo_mode("XI_GPO_OFF")
-            self.device.set_gpi_selector("XI_GPI_PORT1")
+            self.device.set_gpi_selector(f"XI_GPI_PORT{port}")
             self.device.set_gpi_mode("XI_GPI_TRIGGER")
             self.device.set_trigger_source("XI_TRG_EDGE_RISING")
         elif mode == "out":
-            self.device.set_gpo_selector("XI_GPO_PORT1")
+            self.device.set_gpo_selector(f"XI_GPO_PORT{port}")
             self.device.set_gpo_mode("XI_GPO_EXPOSURE_ACTIVE")
-            self.device.set_gpi_selector("XI_GPI_PORT1")
-            self.device.set_gpi_mode("XI_GPI_OFF")
-            self.device.set_trigger_source("XI_TRG_OFF")
-        self.triggerMode = mode
+            # self.device.set_gpi_selector(f"XI_GPI_PORT{port}")
+            # self.device.set_gpi_mode("XI_GPI_OFF")
+            # self.device.set_trigger_source("XI_TRG_OFF")
+        self.triggermode = mode
 
-    def __del__(self):
-        if self.device is not None:
-            self.closeDevice()
+        return self.triggermode
+
+    def setLensAperture(self, aperture: int = 2.8):
+        """
+        Set the lens aperture
+
+        Parameters
+        ----------
+        aperture : int
+            Desired lens aperture (2.8, 4, 5.6, 8, 11)
+
+        Returns
+        -------
+        aperture : int
+        """
+
+        if aperture != 2.8 or 4 or 5.6 or 8 or 11:
+            raise Exception('lens aperture not available')
+        else:
+            self.device.enable_lens_mode()
+            self.device.set_lens_aperture_value(aperture)
+            self.device.disable_lens_mode()
+
+            return aperture
+
+    def setLensFocus(self):
 
 
-if __name__ == "__main__":
-    from time import time
-    t = time()
-    print ("start", time()-t)
-    
-    devices =  CameraXimeaXIB.listDevices()
-    print ("listed", time()-t)
-    print ("Devices: ", devices)
+
+        raise NotImplementedError
+
+    def setResolution(self, resolution=None, downsamplingType: str = 'XI_BINNING'):
+        """
+        Set the resolution of the camera to the given values in pixels or read
+        the current resolution by passing None
+
+        Parameters
+        ----------
+        resolution : tuple
+            Desired camera resolution in the form (width, height), or None to
+            read the current resolution
+        downsamplingType : string
+            'XI_BINNING'
+            'XI_SKIPPING'
+
+        Returns
+        -------
+        resolution : tuple
+            The set camera resolution after applying the passed value
+        """
+
+        if resolution is None:
+            return
+
+        imsize = 3072 * 4096
+        res = resolution[0] * resolution[1]
+        quot = round(imsize / res, 0)
+
+        if quot == 1:
+            key = 'XI_DWN_1x1'
+        elif quot == 4:
+            key = 'XI_DWN_2x2'
+        elif quot == 9:
+            key = 'XI_DWN_3x3'
+        elif quot == 16:
+            key = 'XI_DWN_4x4'
+        elif quot == 25:
+            key = 'XI_DWN_5x5'
+        elif quot == 36:
+            key = 'XI_DWN_6x6'
+        elif quot == 49:
+            key = 'XI_DWN_7x7'
+        elif quot == 64:
+            key = 'XI_DWN_8x8'
+        elif quot == 81:
+            key = 'XI_DWN_9x9'
+        elif quot == 100:
+            key = 'XI_DWN_10x10'
+        elif quot == 256:
+            key = 'XI_DWN_16x16'
+        else:
+            raise Exception('Resolution not available')
+
+
+        # if self.device.get_downsampling() == 'XI_DWN_1x1':
+        #     pass
+
+        self.device.set_downsampling_type(downsamplingType)
+        self.device.set_downsampling(key)
+
+
+if __name__ == '__main__':
+    devices = CameraXimeaXIB.listDevices()
+    print(devices)
+
     cam = CameraXimeaXIB(devices[0])
-    print ("constructed", time()-t)
+
     cam.openDevice()
-    print (cam.setTriggerMode())
-    cam.setTriggerMode("in")
-    cam.setTriggerMode("out")
-    cam.setTriggerMode("off")
-    print ("opened", time()-t)
-    print( "Gain: ", cam.setGain())
-    cam.setGain(-9)
-    print( "Gain: ", cam.setGain())
+    print(f"Cam is open: {cam.isOpen()}")
+
+    cam.setTriggerMode(mode='in', port=6)
+    cam.setTriggerMode(mode='out', port=3)
+
     cam.setExposureMicrons(10000)
-    print ("set", time()-t)
-    from matplotlib import pyplot as plt
-    img = cam.getImage()
-    print ("got image", time()-t)
-    
-    print ("Image 1", img, img.shape, img.dtype)
-    plt.imshow(img, cmap="gray")
-    plt.show()
-    cam.setGain(12)
-    img = cam.getImage()
-    print ("Image 2", img, img.shape, img.dtype)
-    plt.imshow(img, cmap="gray")
-    plt.show()
-    
-    def testMultipleImages(num):
-        print ("getting %d images ..."%(num))
-        from time import time
-        t = time()
-        cam.getImages(num)
-        res = time()-t
-        print ("done in %f seconds with %f fps"%(res, float(num)/res))
-        return res
-    testMultipleImages(10)
-    testMultipleImages(20)
-    testMultipleImages(200)
-    #testMultipleImages(90)
-    
-    
+    cam.setPixelFormat('XI_MONO8')
+    cam.setGain(0)
+
+    cam.prepareRecording(36)
+    imgs = cam.record()
+    # data = cam.getImage()
+
+    # cam.closeDevice()
+    cv2.namedWindow('image', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('image', 1200, 900)
+    cv2.setWindowProperty('image', cv2.WND_PROP_TOPMOST, 1)
+    for i in imgs:
+        cv2.imshow('image', i)
+        cv2.waitKey(100)
+
+    cam.setTriggerMode(mode='off')
+    for i in range(10):
+        img = cam.getImage()
+        cv2.imshow('image', img)
+        cv2.waitKey(500)
