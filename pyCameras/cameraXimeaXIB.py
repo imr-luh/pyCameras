@@ -21,7 +21,7 @@ LOGGING_LEVEL = None
 from pyCameras.cameraTemplate import CameraTemplate
 
 
-class CameraXimeaXIB(CameraTemplate):
+class Camera(CameraTemplate):
     """
     Class to access XIMEA XiB cameras.
     The device_handle is the serial number STRING
@@ -35,13 +35,16 @@ class CameraXimeaXIB(CameraTemplate):
             Some handle that identifies the camera and is used to open the
             device connection
         """
-        super(CameraXimeaXIB, self).__init__(device_handle)
+        super(Camera, self).__init__(device_handle)
 
         self.logger = logging.getLogger(__name__)
         self.device_handle = device_handle  # Use this to identify and open the device
+        # TODO: This will not work, if we have more than one camera
         self.device = xiapi.Camera()  # Use this variable to store the device itself
         self.triggermode = 'off'
         self.buffer = []
+
+        self.openDevice()
 
     @staticmethod
     def listDevices():
@@ -362,12 +365,12 @@ class CameraXimeaXIB(CameraTemplate):
 
 
 if __name__ == '__main__':
-    devices = CameraXimeaXIB.listDevices()
+    devices = Camera.listDevices()
     print(devices)
 
-    cam = CameraXimeaXIB(devices[0])
+    cam = Camera(devices[0])
 
-    cam.openDevice()
+    # cam.openDevice()
     print(f"Cam is open: {cam.isOpen()}")
 
     cam.setTriggerMode(mode='in', port=6)
