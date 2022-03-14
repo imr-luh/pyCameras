@@ -201,7 +201,8 @@ class Camera(CameraTemplate):
                 extensions = ['.png',
                               '.jpg',
                               '.jpeg',
-                              '.bmp']
+                              '.bmp',
+                              '.npy']
 
                 images = natsorted([image for image in os.listdir(imageDir) if
                                  os.path.splitext(image)[
@@ -210,8 +211,12 @@ class Camera(CameraTemplate):
                     self.logger.debug('found the following images: {images}'
                                       ''.format(images=images))
                     for image in images:
-                        self._images.append(cv2.imread(os.path.join(imageDir, image),
-                                                       flags=cvLoadFlags))
+                        if image.endswith('npy'):
+                            self._images.append(np.load(os.path.join(imageDir, image)))
+                        else:
+                            self._images.append(cv2.imread(os.path.join(imageDir, image),
+                                                           flags=cvLoadFlags))
+
                 else:
                     self.logger.info(
                         "No valid image path was specified. Using random image instead (Noisy Image).")
