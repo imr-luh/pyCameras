@@ -334,7 +334,7 @@ class Camera(CameraTemplate):
 
         return images
 
-    def setTriggerMode(self, mode=None):
+    def setTriggerMode(self, mode=None) -> str:
         """
         Set the trigger mode of the camera to either "in", "out", or "off", or
         read the current trigger setting by passing None

@@ -93,7 +93,7 @@ class Grabber(threading.Thread):
             pass
 
     def get_images(self):
-        return [f.as_numpy_ndarray() if f is not None else None for f in self.frame_list]
+        return [f.as_numpy_ndarray() if f is not None else np.array([None]) for f in self.frame_list]
 
 
 class FrameProducer(Grabber):
@@ -296,6 +296,8 @@ class Camera(CameraTemplate):
 
                 while not cam.GVSPAdjustPacketSize.is_done():
                     pass
+
+                cam.GVSPBurstSize = 32
 
             except (AttributeError, VimbaFeatureError):
                 pass
@@ -596,7 +598,8 @@ class Camera(CameraTemplate):
         if self.isSet['numCams']:
             self._setTransferRate()
         else:
-            self.device.StreamBytesPerSecond = rate
+            with self.device as cam:
+                cam.StreamBytesPerSecond = rate
 
         return self.maxTransferRate
 
@@ -608,7 +611,8 @@ class Camera(CameraTemplate):
 
 
         transfer_rate = int(self.maxTransferRate / self.numCams)
-        self.device.StreamBytesPerSecond = transfer_rate
+        with self.device as cam:
+            cam.StreamBytesPerSecond = transfer_rate
         self.logger.debug("Setting transfer rate for {device} to {rate}"
                           "".format(device=self.device_handle, rate=transfer_rate))
 
@@ -782,6 +786,8 @@ class Camera(CameraTemplate):
 
                     while not cam.GVSPAdjustPacketSize.is_done():
                         pass
+
+                    cam.GVSPBurstSize = 32
 
                 except (AttributeError, VimbaFeatureError):
                     pass
