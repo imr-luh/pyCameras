@@ -49,6 +49,7 @@ class Camera(CameraTemplate):
 
         self._expectedImages = 0     # used by self.record
         self._curIndex = 0
+        self._hdr_counter = 0
         self._imageDirs = list()
         self._resolution = (500, 500)
         self.curDir = None
@@ -210,12 +211,14 @@ class Camera(CameraTemplate):
                 if len(images) > 0:
                     self.logger.debug('found the following images: {images}'
                                       ''.format(images=images))
-                    for image in images:
+                    for i in range(self._expectedImages):
+                        image = images[self._hdr_counter]
                         if image.endswith('npy'):
                             self._images.append(np.load(os.path.join(imageDir, image)))
                         else:
                             self._images.append(cv2.imread(os.path.join(imageDir, image),
                                                            flags=cvLoadFlags))
+                        self._hdr_counter += 1
 
                 else:
                     self.logger.info(
